@@ -1,0 +1,5 @@
+# Let the logged-in desktop user talk to ESP32-S3 native-USB boards
+# (Heltec V3/V4 etc.) without joining the dialout group.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", TAG+="uaccess", MODE="0660", GROUP="dialout"
+# Same device in the ROM bootloader / JTAG mode, for esptool and OpenOCD.
+SUBSYSTEM=="usb", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", TAG+="uaccess"
