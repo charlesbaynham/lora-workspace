@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#111827">
+<title>LoRa link</title>
+<style>
+  :root { color-scheme: light dark; --bg:#f6f7f9; --card:#fff; --fg:#111827; --dim:#6b7280; --line:#e5e7eb;
+          --accent:#2563eb; --ok:#16a34a; --bad:#dc2626; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0b0f17; --card:#151b27; --fg:#e5e7eb; --dim:#8b95a7; --line:#263043; --accent:#60a5fa; --ok:#4ade80; --bad:#f87171; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 12px; display: grid; gap: 12px; }
+  header { display:flex; align-items:center; gap:10px; }
+  h1 { font-size: 18px; margin:0; flex:1; }
+  button { font:inherit; padding:8px 14px; border-radius:8px; border:1px solid var(--accent); background:var(--accent); color:#fff; }
+  button:disabled { opacity:.5; }
+  .pill { font-size:13px; padding:2px 10px; border-radius:99px; border:1px solid var(--line); color:var(--dim); }
+  .pill.on { color:var(--ok); border-color:var(--ok); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; }
+  .tiles { display:grid; grid-template-columns: repeat(2, 1fr); gap:12px; }
+  .tile .v { font-size:34px; font-weight:600; font-variant-numeric: tabular-nums; }
+  .tile .u { font-size:14px; color:var(--dim); margin-left:4px; }
+  .tile .k { font-size:13px; color:var(--dim); }
+  .counts { display:flex; justify-content:space-between; font-variant-numeric: tabular-nums; }
+  .counts div { text-align:center; } .counts b { display:block; font-size:22px; } .counts span { font-size:13px; color:var(--dim); }
+  canvas { width:100%; height:160px; display:block; }
+  .legend { font-size:12px; color:var(--dim); display:flex; gap:14px; margin-top:4px; }
+  .sw { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:-1px; }
+  #log { margin:0; padding:0; list-style:none; font:13px/1.5 ui-monospace, monospace; max-height:260px; overflow:auto; }
+  #log li { border-top:1px solid var(--line); padding:3px 0; word-break:break-word; }
+  #log li:first-child { border-top:0; }
+  #log .t { color:var(--dim); } #log .bad { color:var(--bad); }
+  #msg { color:var(--bad); font-size:14px; }
+  small { color:var(--dim); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>LoRa link <small id="dev"></small></h1>
+    <span class="pill" id="status">disconnected</span>
+    <button id="connect">Connect</button>
+  </header>
+  <div id="msg" hidden></div>
+
+  <section class="tiles">
+    <div class="card tile"><div class="k">RSSI</div><span class="v" id="rssi">–</span><span class="u">dBm</span></div>
+    <div class="card tile"><div class="k">SNR</div><span class="v" id="snr">–</span><span class="u">dB</span></div>
+    <div class="card tile"><div class="k">Noise floor</div><span class="v" id="noise">–</span><span class="u">dBm</span></div>
+    <div class="card tile"><div class="k">Frequency error</div><span class="v" id="ferr">–</span><span class="u">Hz</span></div>
+  </section>
+
+  <section class="card counts">
+    <div><b id="ntx">0</b><span>sent</span></div>
+    <div><b id="nrx">0</b><span>received</span></div>
+    <div><b id="nbad">0</b><span>CRC errors</span></div>
+    <div><b id="per">–</b><span>bad %</span></div>
+  </section>
+
+  <section class="card">
+    <canvas id="chart"></canvas>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--accent)"></i>RSSI</span>
+      <span><i class="sw" style="background:var(--dim)"></i>noise floor</span>
+      <span id="radio"></span>
+    </div>
+  </section>
+
+  <section class="card"><ul id="log"></ul></section>
+</main>
+
+<script>
+'use strict';
+// Keep in sync with src/common/ble_link.h.
+const SERVICE = '6e4c0001-7a1b-4c5e-9d0a-5b1e0c0a4a01';
+const INFO    = '6e4c0002-7a1b-4c5e-9d0a-5b1e0c0a4a01';
+const EVENT   = '6e4c0003-7a1b-4c5e-9d0a-5b1e0c0a4a01';
+const MAX_POINTS = 120, MAX_LOG = 100;
+
+const $ = id => document.getElementById(id);
+const state = { tx: 0, ok: 0, bad: 0, noise: null, rssi: [] };   // rssi: [{t, v}]
+let device = null, wakeLock = null, retry = 0, userDisconnected = false;
+
+function setStatus(text, on) { $('status').textContent = text; $('status').classList.toggle('on', !!on); }
+function setMsg(text) { $('msg').hidden = !text; $('msg').textContent = text || ''; }
+
+function logLine(text, cls) {
+  const li = document.createElement('li');
+  const t = document.createElement('span');
+  t.className = 't'; t.textContent = new Date().toLocaleTimeString() + ' ';
+  const b = document.createElement('span');
+  if (cls) b.className = cls;
+  b.textContent = text;                         // textContent: LoRa payloads are untrusted
+  li.append(t, b);
+  $('log').prepend(li);
+  while ($('log').children.length > MAX_LOG) $('log').lastChild.remove();
+}
+
+function render() {
+  $('ntx').textContent = state.tx;
+  $('nrx').textContent = state.ok;
+  $('nbad').textContent = state.bad;
+  const n = state.ok + state.bad;
+  $('per').textContent = n ? (100 * state.bad / n).toFixed(0) : '–';
+  $('noise').textContent = state.noise === null ? '–' : state.noise.toFixed(0);
+  drawChart();
+}
+
+function onEvent(ev) {
+  switch (ev.e) {
+    case 'tx':
+      state.tx = ev.n;
+      logLine(ev.ok ? `TX #${ev.n} (${ev.ms} ms on air)` : `TX #${ev.n} failed`, ev.ok ? '' : 'bad');
+      break;
+    case 'rx':
+      state.ok = ev.ok; state.bad = ev.bad;
+      $('rssi').textContent = ev.rssi.toFixed(0);
+      $('snr').textContent = ev.snr.toFixed(1);
+      $('ferr').textContent = ev.ferr.toFixed(0);
+      state.rssi.push({ t: Date.now(), v: ev.rssi });
+      if (state.rssi.length > MAX_POINTS) state.rssi.shift();
+      logLine(`RX "${ev.m}"  ${ev.rssi.toFixed(0)} dBm  SNR ${ev.snr.toFixed(1)}`);
+      break;
+    case 'bad':
+      state.ok = ev.ok; state.bad = ev.bad;
+      logLine('RX CRC error', 'bad');
+      break;
+    case 'noise':
+      state.noise = ev.dbm;
+      break;
+    default:
+      return;
+  }
+  render();
+}
+
+function onNotification(e) {
+  const text = new TextDecoder().decode(e.target.value);
+  try { onEvent(JSON.parse(text)); }
+  catch (err) { logLine('bad event: ' + text, 'bad'); }   // usually a notification truncated by a small MTU
+}
+
+function drawChart() {
+  const c = $('chart'), dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  if (c.width !== w * dpr) { c.width = w * dpr; c.height = h * dpr; }
+  const g = c.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  const css = getComputedStyle(document.documentElement);
+  const line = css.getPropertyValue('--line'), dim = css.getPropertyValue('--dim'), acc = css.getPropertyValue('--accent');
+
+  const vals = state.rssi.map(p => p.v);
+  if (state.noise !== null) vals.push(state.noise);
+  let lo = Math.min(-120, ...vals) , hi = Math.max(-20, ...vals);
+  lo = Math.floor(lo / 10) * 10; hi = Math.ceil(hi / 10) * 10;
+  const L = 34, R = 4, T = 6, B = 6;
+  const y = v => T + (hi - v) / (hi - lo) * (h - T - B);
+
+  g.font = '11px system-ui'; g.fillStyle = dim; g.strokeStyle = line; g.lineWidth = 1;
+  for (let v = lo; v <= hi; v += (hi - lo > 60 ? 20 : 10)) {
+    g.beginPath(); g.moveTo(L, y(v)); g.lineTo(w - R, y(v)); g.stroke();
+    g.fillText(v, 2, y(v) + 4);
+  }
+  if (state.noise !== null) {
+    g.strokeStyle = dim; g.setLineDash([4, 4]);
+    g.beginPath(); g.moveTo(L, y(state.noise)); g.lineTo(w - R, y(state.noise)); g.stroke();
+    g.setLineDash([]);
+  }
+  const pts = state.rssi;
+  if (!pts.length) return;
+  const x = i => L + (pts.length === 1 ? 0 : i / (MAX_POINTS - 1)) * (w - L - R);
+  g.strokeStyle = acc; g.fillStyle = acc; g.lineWidth = 2; g.lineJoin = 'round';
+  g.beginPath();
+  pts.forEach((p, i) => i ? g.lineTo(x(i), y(p.v)) : g.moveTo(x(i), y(p.v)));
+  g.stroke();
+  g.beginPath(); g.arc(x(pts.length - 1), y(pts[pts.length - 1].v), 3.5, 0, 7); g.fill();
+}
+
+async function setup(server) {
+  const svc = await server.getPrimaryService(SERVICE);
+  try {
+    const info = JSON.parse(new TextDecoder().decode(await (await svc.getCharacteristic(INFO)).readValue()));
+    $('dev').textContent = info.id;
+    $('radio').textContent = `${info.freq} MHz · SF${info.sf} · BW${info.bw} · ${info.pwr} dBm`;
+  } catch (e) { logLine('could not read info: ' + e.message, 'bad'); }
+  const ch = await svc.getCharacteristic(EVENT);
+  ch.addEventListener('characteristicvaluechanged', onNotification);
+  await ch.startNotifications();
+}
+
+async function connect() {
+  setMsg('');
+  setStatus('connecting…');
+  try {
+    const server = await device.gatt.connect();
+    await setup(server);
+    retry = 0;
+    setStatus('connected', true);
+    $('connect').textContent = 'Disconnect';
+    keepAwake();
+  } catch (e) {
+    setStatus('disconnected');
+    scheduleRetry(e);
+  }
+}
+
+function scheduleRetry(err) {
+  if (userDisconnected) return;
+  const delay = Math.min(1000 * 2 ** retry++, 15000);
+  setMsg(`${err ? err.message + '. ' : ''}Retrying in ${Math.round(delay / 1000)} s…`);
+  setTimeout(() => { if (!userDisconnected && !device.gatt.connected) connect(); }, delay);
+}
+
+async function pick() {
+  if (!navigator.bluetooth) {
+    setMsg('Web Bluetooth is not available. Use Chrome on Android, over HTTPS.');
+    return;
+  }
+  try {
+    device = await navigator.bluetooth.requestDevice({ filters: [{ services: [SERVICE] }] });
+  } catch (e) { if (e.name !== 'NotFoundError') setMsg(e.message); return; }   // NotFoundError: user cancelled
+  userDisconnected = false;
+  $('dev').textContent = device.name || '';
+  device.addEventListener('gattserverdisconnected', () => {
+    setStatus('disconnected');
+    $('connect').textContent = 'Connect';
+    if (!userDisconnected) { logLine('disconnected', 'bad'); scheduleRetry(); }
+  });
+  await connect();
+}
+
+async function keepAwake() {
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch (e) { /* not essential */ }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && device?.gatt.connected) keepAwake();
+});
+
+$('connect').addEventListener('click', () => {
+  if (device?.gatt.connected) { userDisconnected = true; device.gatt.disconnect(); wakeLock?.release(); }
+  else pick();
+});
+window.addEventListener('resize', drawChart);
+render();
+</script>
+</body>
+</html>
