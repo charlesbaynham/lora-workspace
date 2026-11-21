@@ -2,34 +2,58 @@
 
 PlatformIO firmware for two Heltec WiFi LoRa 32 **V4** boards (ESP32-S3 + SX1262).
 
+The LoRa link between the two boards works; see [`docs/lora-bringup.md`](docs/lora-bringup.md).
+Hardware reference (pins, GNSS wiring, PA control, schematics): [`docs/`](docs/README.md).
+
+## Boards
+
+| Board MAC (USB serial no.) | GNSS module | Firmware env |
+|---|---|---|
+| `90:DA:72:FB:75:FC` | **attached** (NMEA, 9600 baud, GPIO39) | `lora_link` |
+| `90:DA:72:FE:0A:AC` | none | `lora_link` |
+
+Both are V4.3 (KCT8103L PA). The link between them works symmetrically
+(about -12 dBm RSSI at 30 cm, +10 dBm TX). A poorly seated antenna had caused a
+46 dB asymmetry earlier; if a link looks lopsided, reseat the antennas first. See
+[`docs/lora-bringup.md`](docs/lora-bringup.md#the-46-db-asymmetry-poorly-seated-antenna).
+
+`/dev/ttyACMn` numbers are not stable; use `/dev/serial/by-id/...` (see `scripts/ports.sh`).
+`scripts/serial_capture.py PORT [SECONDS]` resets a board and prints its serial output.
+
 ## Build / flash / monitor
 
-    pio run                                   # build
-    pio run -t upload  --upload-port <port>   # flash one board
-    pio device monitor --port <port>          # serial monitor
+Environments (`platformio.ini`): `lora_link` (default), `smoke`, and experiments
+(`lora_link_lna`, `lora_link_nognss[_lna]`, `lora_link_v42`, `fem_sweep`); see `docs/lora-bringup.md`.
 
-No global `pio`? `uvx --from platformio pio ...` works the same; add
-`PLATFORMIO_CORE_DIR=$PWD/.platformio` to keep all toolchains inside the repo.
+```fish
+set -x PLATFORMIO_CORE_DIR $PWD/.platformio       # keep toolchains inside the repo
+uvx --from platformio pio run -e lora_link        # build
+uvx --from platformio pio run -e lora_link -t upload --upload-port <port>
+uv run --with pyserial python -I scripts/serial_capture.py <port> 30
+```
 
-Two identical boards are attached, so the upload port is deliberately not pinned
-in `platformio.ini`. `scripts/ports.sh` lists them. Use the stable
-`/dev/serial/by-id/...` path (the serial number *is* the board's MAC), not
-`/dev/ttyACMn`, whose numbering changes between plugs.
+A global `pio` works the same way. Two identical boards are attached, so the
+upload port is deliberately not pinned in `platformio.ini`. `scripts/ports.sh`
+lists them; use the `/dev/serial/by-id/...` path.
 
 ## One-time: serial permissions
 
 The boards enumerate as `root:dialout 0660`. Either join the group (needs re-login):
 
-    sudo usermod -aG dialout $USER
+```fish
+sudo usermod -aG dialout $USER
+```
 
 or install the udev rule in this repo (no re-login; replug the boards):
 
-    sudo cp udev/99-heltec-esp32s3.rules /etc/udev/rules.d/
-    sudo udevadm control --reload && sudo udevadm trigger
+```fish
+sudo cp udev/99-heltec-esp32s3.rules /etc/udev/rules.d/
+sudo udevadm control --reload; and sudo udevadm trigger
+```
 
-## Open questions before real radio work
+## Layout
 
-- The V4 has a GC1109 PA/front-end. Its enable/TX-select GPIOs are **not** in the
-  Arduino variant file, so `src/main.cpp` does not drive them; transmitting without
-  them will be weak or silent. Confirm pins against Heltec's V4 schematic/examples.
-- Frequency is set to 868 MHz (EU868). Check duty-cycle/power limits before TX.
+- `src/lora_link/`: bidirectional LoRa link test (both boards run it)
+- `src/common/heltec_v4.h`: pins and front-end control
+- `src/smoke/`: identity, SX1262 check, GNSS detection
+- `docs/`: hardware and radio reference, Heltec's datasheets and schematics
