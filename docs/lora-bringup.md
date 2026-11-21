@@ -126,11 +126,29 @@ radio.startReceive();
 around it (as `src/lora_link/main.cpp` does) or the ISR will set a spurious
 receive flag.
 
+## Link state and the beacon
+
+Beacon text is `V4 <id> #<seq>`, plus ` <rssi>/<snr>` once the sender has heard the
+other board in the last 20 s (that is what the sender measured from us). Each board
+therefore knows both directions of the link. Per board, `src/lora_link/main.cpp` keeps:
+
+- **linked**: a beacon from the peer arrived within `LINK_TIMEOUT_MS` (20 s, about 3
+  missed beacons). Printed as `LINK UP` / `LINK DOWN` on serial, and every 10 s.
+- **lost**: gaps in the peer's sequence numbers. A sequence that goes backwards is
+  treated as a peer reboot, not a loss.
+- **peer hears us**: the peer's latest beacon carried a report. No report while we hear
+  it means the link is one-way (see the antenna note below).
+
+Only one peer is tracked. In the `lora_link_ble` build the same state goes to the
+phone as a `link` event every 2 s (and on every change); see `web/index.html`.
+
 ## Regulatory (UK/EU)
 
 `lora_link` uses 868.1 MHz, SF7, BW 125 kHz: sub-band g1 (868.0-868.6 MHz),
-limited to 1 % duty cycle and 14 dBm ERP. A 48 ms packet every ~5 s is about
-1 %. This is a note, not legal advice; check the current Ofcom / ETSI rules
+limited to 1 % duty cycle and 14 dBm ERP. The beacon is 48 ms on air, or 58 ms
+once it carries the peer report (see below), sent every 5-7 s (mean 6 s): about
+0.97 %, so there is almost no headroom for a longer beacon or a shorter interval.
+This is a note, not legal advice; check the current Ofcom / ETSI rules
 before changing frequency, power or rate.
 
 ## Measurements

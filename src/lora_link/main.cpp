@@ -1,6 +1,11 @@
 // Bidirectional LoRa link test. Flash the same firmware to both boards: each
-// beacons every ~5 s (with jitter) and listens the rest of the time, printing
+// beacons every 5-7 s (random) and listens the rest of the time, printing
 // RSSI/SNR of anything it hears.
+//
+// Beacon text: "V4 <id> #<seq>" or, once the sender has heard the other board
+// recently, "V4 <id> #<seq> <rssi>/<snr>" (what the sender last measured from
+// us). So each board learns both directions of the link. The peer is "linked"
+// while one of its beacons arrived within LINK_TIMEOUT_MS.
 #include <Arduino.h>
 #include <RadioLib.h>
 #include <SPI.h>
@@ -25,6 +30,22 @@ static volatile bool rxFlag = false;
 static char myId[7];
 static uint32_t txCount = 0, rxCount = 0, rxBad = 0;
 static uint32_t nextTxMs = 0;
+
+// ~3 missed beacons (they come every 5-7 s).
+static constexpr uint32_t LINK_TIMEOUT_MS = 20000;
+
+// The other board. Only one peer is tracked; a beacon from a new id replaces it.
+static struct {
+  char id[7];
+  bool seen;
+  uint32_t lastMs;            // millis() of the last beacon heard
+  float rssi, snr;            // of that beacon, measured here
+  uint32_t lastSeq, got, lost;  // lost = sequence-number gaps
+  bool farValid;              // the peer's latest beacon carried a report
+  int farRssi, farSnr;        // what the peer measured from us
+} peer;
+
+static bool linkUp() { return peer.seen && millis() - peer.lastMs < LINK_TIMEOUT_MS; }
 
 // Push one event to the phone (no-op unless built with LINK_BLE).
 #ifdef LINK_BLE
@@ -54,7 +75,9 @@ static void fail(const char* what, int16_t rc) {
 
 static void sendBeacon() {
   char msg[40];
-  snprintf(msg, sizeof msg, "V4 %s #%lu", myId, (unsigned long)txCount);
+  int n = snprintf(msg, sizeof msg, "V4 %s #%lu", myId, (unsigned long)txCount);
+  if (linkUp())
+    snprintf(msg + n, sizeof msg - n, " %ld/%ld", lroundf(peer.rssi), lroundf(peer.snr));
   radio.clearPacketReceivedAction();
   femTx();
   uint32_t t0 = millis();
@@ -85,6 +108,65 @@ static float noiseFloorDbm() {
   return v[7];
 }
 
+// Update the peer record from a received beacon.
+static void trackPeer(const char* msg, float rssi, float snr) {
+  char id[7];
+  unsigned long seq;
+  int farRssi, farSnr;
+  int n = sscanf(msg, "V4 %6[0-9A-F] #%lu %d/%d", id, &seq, &farRssi, &farSnr);
+  if (n < 2 || strcmp(id, myId) == 0) return;  // not one of our beacons
+  if (!peer.seen || strcmp(id, peer.id) != 0) {
+    peer = {};
+    strcpy(peer.id, id);
+    peer.seen = true;
+    peer.lastSeq = seq;
+  } else if (seq > peer.lastSeq) {
+    peer.lost += seq - peer.lastSeq - 1;
+    peer.lastSeq = seq;
+  } else {
+    peer.lastSeq = seq;  // sequence went backwards: the peer rebooted, not a loss
+  }
+  peer.got++;
+  peer.lastMs = millis();
+  peer.rssi = rssi;
+  peer.snr = snr;
+  peer.farValid = (n == 4);
+  peer.farRssi = farRssi;
+  peer.farSnr = farSnr;
+}
+
+static void printLink() {
+  if (!peer.seen) {
+    Serial.println("LINK  no peer heard yet");
+    return;
+  }
+  Serial.printf("LINK  %s  peer %s  last heard %.1f s ago  lost %lu of %lu", linkUp() ? "UP  " : "DOWN",
+                peer.id, (millis() - peer.lastMs) / 1000.0f, (unsigned long)peer.lost,
+                (unsigned long)(peer.got + peer.lost));
+  if (peer.farValid) Serial.printf("  peer hears us at %d dBm / SNR %d", peer.farRssi, peer.farSnr);
+  else Serial.print("  peer is NOT hearing us");
+  Serial.println();
+}
+
+#ifdef LINK_BLE
+// Whole link state, so the phone has it as soon as it connects.
+static void sendLinkEvent() {
+  char j[256];
+  int n = snprintf(j, sizeof j, "{\"e\":\"link\",\"up\":%d,\"tx\":%lu,\"ok\":%lu,\"bad\":%lu", linkUp(),
+                   (unsigned long)txCount, (unsigned long)rxCount, (unsigned long)rxBad);
+  if (peer.seen) {
+    n += snprintf(j + n, sizeof j - n,
+                  ",\"peer\":\"%s\",\"age\":%lu,\"rssi\":%.0f,\"snr\":%.1f,\"got\":%lu,\"lost\":%lu,\"far\":%d",
+                  peer.id, (unsigned long)(millis() - peer.lastMs), peer.rssi, peer.snr,
+                  (unsigned long)peer.got, (unsigned long)peer.lost, peer.farValid);
+    if (peer.farValid)
+      n += snprintf(j + n, sizeof j - n, ",\"frssi\":%d,\"fsnr\":%d", peer.farRssi, peer.farSnr);
+  }
+  snprintf(j + n, sizeof j - n, "}");
+  ble_link::notify(j);
+}
+#endif
+
 static void handleRx() {
   uint8_t buf[64];
   size_t len = radio.getPacketLength();
@@ -102,6 +184,7 @@ static void handleRx() {
     BLE_EVENT("{\"e\":\"rx\",\"m\":\"%s\",\"rssi\":%.1f,\"snr\":%.1f,\"ferr\":%.0f,\"ok\":%lu,\"bad\":%lu}",
               esc, rssi, snr, ferr, (unsigned long)rxCount, (unsigned long)rxBad);
 #endif
+    trackPeer((char*)buf, rssi, snr);
     digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
   } else {
     rxBad++;
@@ -158,7 +241,26 @@ void loop() {
   }
   if ((int32_t)(millis() - nextTxMs) >= 0) {
     sendBeacon();
-    nextTxMs = millis() + 4000 + random(0, 2000);
+    nextTxMs = millis() + 5000 + random(0, 2000);  // mean 6 s: 58 ms packet = 0.97 % duty
+  }
+  static bool reportedUp = false;
+  static uint32_t nextLinkMs = 0;
+  bool up = linkUp();
+  bool changed = up != reportedUp;
+  if (changed) {
+    reportedUp = up;
+    printLink();
+  }
+  if (changed || (int32_t)(millis() - nextLinkMs) >= 0) {
+#ifdef LINK_BLE
+    sendLinkEvent();
+#endif
+    nextLinkMs = millis() + 2000;
+  }
+  static uint32_t nextLinkPrintMs = 10000;
+  if ((int32_t)(millis() - nextLinkPrintMs) >= 0) {
+    printLink();
+    nextLinkPrintMs = millis() + 10000;
   }
   static uint32_t nextNoiseMs = 0;
   if ((int32_t)(millis() - nextNoiseMs) >= 0 && !rxFlag) {

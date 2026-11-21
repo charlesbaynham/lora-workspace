@@ -39,8 +39,11 @@ lists them; use the `/dev/serial/by-id/...` path.
 ## Phone web app (BLE)
 
 Flash the `lora_link_ble` env (`lora_link` plus a BLE feed; the board advertises as
-`LoRa-<id>`). `web/index.html` is a single static file that connects with Web Bluetooth
-and shows RSSI, SNR, noise floor, counters, a chart and a packet log.
+`LoRa-<id>`; flash it to both boards). `web/index.html` is a single static file that connects
+with Web Bluetooth to either board and shows whether the two boards are linked
+(*Linked* / *One-way* / *Link down*), the RSSI and SNR each board hears from the other,
+packet loss, noise floor, counters, a chart and a packet log. How the link state is
+worked out: [`docs/lora-bringup.md`](docs/lora-bringup.md#link-state-and-the-beacon).
 
 Web Bluetooth needs **Chrome on Android** and a **secure context** (HTTPS, or `localhost`).
 Serve it on plain HTTP and let the reverse proxy add TLS. For a quick local run:

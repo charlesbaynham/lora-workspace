@@ -21,6 +21,10 @@
   .pill { font-size:13px; padding:2px 10px; border-radius:99px; border:1px solid var(--line); color:var(--dim); }
   .pill.on { color:var(--ok); border-color:var(--ok); }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; }
+  .link { display:flex; align-items:center; gap:12px; }
+  .dot { width:14px; height:14px; border-radius:50%; background:var(--dim); flex:none; }
+  .link.up .dot { background:var(--ok); } .link.warn .dot { background:#d97706; } .link.down .dot { background:var(--bad); }
+  .link .big { font-size:20px; font-weight:600; } .link .sub { font-size:13px; color:var(--dim); font-variant-numeric: tabular-nums; }
   .tiles { display:grid; grid-template-columns: repeat(2, 1fr); gap:12px; }
   .tile .v { font-size:34px; font-weight:600; font-variant-numeric: tabular-nums; }
   .tile .u { font-size:14px; color:var(--dim); margin-left:4px; }
@@ -47,9 +51,16 @@
   </header>
   <div id="msg" hidden></div>
 
+  <section class="card link" id="link">
+    <i class="dot"></i>
+    <div><div class="big" id="linkTitle">Not connected to a board</div><div class="sub" id="linkSub"></div></div>
+  </section>
+
   <section class="tiles">
-    <div class="card tile"><div class="k">RSSI</div><span class="v" id="rssi">–</span><span class="u">dBm</span></div>
-    <div class="card tile"><div class="k">SNR</div><span class="v" id="snr">–</span><span class="u">dB</span></div>
+    <div class="card tile"><div class="k">RSSI heard here</div><span class="v" id="rssi">–</span><span class="u">dBm</span></div>
+    <div class="card tile"><div class="k">SNR heard here</div><span class="v" id="snr">–</span><span class="u">dB</span></div>
+    <div class="card tile"><div class="k">RSSI heard at peer</div><span class="v" id="frssi">–</span><span class="u">dBm</span></div>
+    <div class="card tile"><div class="k">SNR heard at peer</div><span class="v" id="fsnr">–</span><span class="u">dB</span></div>
     <div class="card tile"><div class="k">Noise floor</div><span class="v" id="noise">–</span><span class="u">dBm</span></div>
     <div class="card tile"><div class="k">Frequency error</div><span class="v" id="ferr">–</span><span class="u">Hz</span></div>
   </section>
@@ -59,6 +70,7 @@
     <div><b id="nrx">0</b><span>received</span></div>
     <div><b id="nbad">0</b><span>CRC errors</span></div>
     <div><b id="per">–</b><span>bad %</span></div>
+    <div><b id="loss">–</b><span>lost %</span></div>
   </section>
 
   <section class="card">
@@ -82,7 +94,8 @@ const EVENT   = '6e4c0003-7a1b-4c5e-9d0a-5b1e0c0a4a01';
 const MAX_POINTS = 120, MAX_LOG = 100;
 
 const $ = id => document.getElementById(id);
-const state = { tx: 0, ok: 0, bad: 0, noise: null, rssi: [] };   // rssi: [{t, v}]
+const state = { tx: 0, ok: 0, bad: 0, noise: null, rssi: [],   // rssi: [{t, v}]
+                link: null };   // latest 'link' event from the board, plus .at (ms when received, age-corrected)
 let device = null, wakeLock = null, retry = 0, userDisconnected = false;
 
 function setStatus(text, on) { $('status').textContent = text; $('status').classList.toggle('on', !!on); }
@@ -100,12 +113,39 @@ function logLine(text, cls) {
   while ($('log').children.length > MAX_LOG) $('log').lastChild.remove();
 }
 
+// Link card: the board decides up/down (no beacon for 20 s); we only describe it.
+function renderLink() {
+  const card = $('link'), L = state.link, conn = device?.gatt.connected;
+  let cls = '', title, sub = '';
+  if (!conn) { title = 'Not connected to a board'; }
+  else if (!L) { title = 'Waiting for the board…'; }
+  else if (!L.peer) { cls = 'down'; title = 'No link: other board not heard yet'; }
+  else {
+    const age = (Date.now() - L.at) / 1000;
+    const total = L.got + L.lost;
+    sub = `peer ${L.peer} · last heard ${age < 10 ? age.toFixed(1) : Math.round(age)} s ago` +
+          (total ? ` · lost ${L.lost} of ${total}` : '');
+    if (!L.up) { cls = 'down'; title = 'Link down'; }
+    else if (!L.far && L.got >= 3) { cls = 'warn'; title = 'One-way: peer is not hearing us'; }
+    else { cls = 'up'; title = 'Linked'; }
+  }
+  card.className = 'card link ' + cls;
+  $('linkTitle').textContent = title;
+  $('linkSub').textContent = sub;
+  const L2 = conn && L && L.peer ? L : null;
+  $('frssi').textContent = L2 && L2.up && L2.far ? L2.frssi : '–';
+  $('fsnr').textContent = L2 && L2.up && L2.far ? L2.fsnr : '–';
+}
+
 function render() {
+  renderLink();
   $('ntx').textContent = state.tx;
   $('nrx').textContent = state.ok;
   $('nbad').textContent = state.bad;
   const n = state.ok + state.bad;
   $('per').textContent = n ? (100 * state.bad / n).toFixed(0) : '–';
+  const g = state.link && state.link.got + state.link.lost;
+  $('loss').textContent = g ? (100 * state.link.lost / g).toFixed(0) : '–';
   $('noise').textContent = state.noise === null ? '–' : state.noise.toFixed(0);
   drawChart();
 }
@@ -131,6 +171,15 @@ function onEvent(ev) {
       break;
     case 'noise':
       state.noise = ev.dbm;
+      break;
+    case 'link':
+      ev.at = Date.now() - (ev.age || 0);
+      state.link = ev;
+      state.tx = ev.tx; state.ok = ev.ok; state.bad = ev.bad;
+      if (ev.peer) {            // fills the tiles on connect, before the next beacon arrives
+        $('rssi').textContent = ev.rssi.toFixed(0);
+        $('snr').textContent = ev.snr.toFixed(1);
+      }
       break;
     default:
       return;
@@ -202,6 +251,7 @@ async function connect() {
     retry = 0;
     setStatus('connected', true);
     $('connect').textContent = 'Disconnect';
+    state.link = null;
     keepAwake();
   } catch (e) {
     setStatus('disconnected');
@@ -229,6 +279,7 @@ async function pick() {
   device.addEventListener('gattserverdisconnected', () => {
     setStatus('disconnected');
     $('connect').textContent = 'Connect';
+    state.link = null; renderLink();
     if (!userDisconnected) { logLine('disconnected', 'bad'); scheduleRetry(); }
   });
   await connect();
@@ -246,6 +297,7 @@ $('connect').addEventListener('click', () => {
   else pick();
 });
 window.addEventListener('resize', drawChart);
+setInterval(renderLink, 1000);   // keeps "last heard N s ago" ticking between events
 render();
 </script>
 </body>
