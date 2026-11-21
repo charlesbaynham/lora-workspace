@@ -15,3 +15,8 @@ PlatformIO firmware for two Heltec WiFi LoRa 32 V4 boards. See `README.md` and `
     (`git add -p`), or leave the file and mention it.
   - Never revert, reset, stash, or reformat changes you did not make.
 - Write a clear message describing what you changed and why.
+
+## Deployment
+
+The web app (`web/`) is deployed automatically, outside this repository: a commit pushed
+to `master` goes live within 2 minutes. There is no manual deploy step.

@@ -52,18 +52,6 @@ Serve it on plain HTTP and let the reverse proxy add TLS. For a quick local run:
 python3 -m http.server 8080 -d web
 ```
 
-Deploy to the Proxmox LXC (needs only `python3` in the container; replace `<ct>` with its
-host or IP, and map port 8080 at the proxy):
-
-```fish
-ssh root@<ct> 'mkdir -p /opt/lora-web'
-scp web/index.html root@<ct>:/opt/lora-web/
-scp web/lora-web.service root@<ct>:/etc/systemd/system/
-ssh root@<ct> 'systemctl daemon-reload && systemctl enable --now lora-web'
-```
-
-Updating the page later is just the `scp web/index.html` line. Logs: `journalctl -u lora-web`.
-
 Quick test without a proxy: `adb reverse tcp:8080 tcp:8080`, then open `http://localhost:8080` in Chrome on the phone.
 The GATT UUIDs are defined in both `src/common/ble_link.h` and `web/index.html`; keep them in sync.
 
