@@ -3,7 +3,7 @@
 //   1. signal:  link state, peer, RSSI / SNR heard here and at the peer, noise floor
 //   2. counts:  sent / received / CRC errors / lost, frequency error, radio settings
 //   3. chart:   RSSI of the last received beacons, with the noise floor (dashed)
-//   4. Wi-Fi:   (LINK_BLE builds only) what the Wi-Fi radio is doing, saved network, last join
+//   4. Wi-Fi:   what the Wi-Fi radio is doing, saved network, last join
 // A bar across the top of every page says Linked / One-way / Link down, as the app's link card does.
 // Panel, pins and the Vext power switch: docs/oled-display.md.
 #pragma once
@@ -45,11 +45,7 @@ struct Stats {
 };
 
 constexpr uint32_t PAGE_MS = 5000;
-#ifdef LINK_BLE
-constexpr int PAGES = 4;        // the Wi-Fi page exists only in builds that have Wi-Fi support
-#else
-constexpr int PAGES = 3;
-#endif
+constexpr int PAGES = 4;
 constexpr int PAGE_WIFI = 3;
 constexpr int HIST = 104;       // chart width in pixels: one RSSI sample per pixel
 

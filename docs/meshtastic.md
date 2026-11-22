@@ -205,7 +205,7 @@ two-board network that mostly talks to itself.
 
 ## What we gain and lose
 
-| | Our firmware (`lora_link_ble`) | Meshtastic |
+| | Our firmware (`lora_link`) | Meshtastic |
 |---|---|---|
 | Frequency / rate | 868.1 MHz, SF7, BW 125 kHz, +10 dBm | 869.525 MHz, SF11, BW 250 kHz (LongFast), up to 27 dBm |
 | Receiver sensitivity | SF7, BW 125 kHz | about 7 dB better: SF11 gains roughly 2.5 dB per step over four steps (about 10 dB), the doubled bandwidth costs about 3 dB. An estimate from Meshtastic's rules of thumb; its table gives LongFast a link budget of 153 dB at 22 dBm, i.e. a floor near -131 dBm |
@@ -215,7 +215,7 @@ two-board network that mostly talks to itself.
 | Updates | BLE OTA from our web app | Web Flasher over USB (whether the apps can update a V4 over BLE was not checked) |
 | Range test | `docs/range-tests.md` workflow | built-in [Range Test module](https://meshtastic.org/docs/configuration/module/range-test/) (sender every 30 s for LongFast; logs with GPS position; **on a private channel only**, it spams otherwise, and it self-disables after 8 h) |
 | Control | everything, 48 ms packets, 1 % duty | enforced 10 % duty cycle, fixed packet format |
-| LNA | off by default (`lora_link_lna` to enable) | **on by default** on V4.3, with an auto mode in development firmware |
+| LNA | off | **on by default** on V4.3, with an auto mode in development firmware |
 
 The web app, the `src/` firmware and `web/firmware/` stay in the repo and are not touched by any of
 this. Flashing Meshtastic does not delete them, but a board running Meshtastic will not show up in the web
@@ -274,7 +274,7 @@ Suggested order:
 4. Only then consider MQTT uplink, with client proxy if the BLE connection to a phone matters.
 
 **Going back.** Rebuild and flash with the existing commands in the README
-(`pio run -e lora_link_ble -t upload --upload-port <port>`). A first flash of our firmware
+(`pio run -t upload --upload-port <port>`). A first flash of our firmware
 over Meshtastic has to go over USB, since our OTA path only exists inside our own firmware.
 The backup above is only for the case where the build breaks.
 

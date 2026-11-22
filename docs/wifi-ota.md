@@ -18,7 +18,7 @@ web app, sent over the paired BLE link, and kept in the board's own flash (NVS, 
    lists what it found. Tap one, enter the password, *Connect and save*. The board joins, and only if
    that worked saves the network and tells you its IP address. A wrong password is not saved.
 4. *Update over Wi-Fi* (in the Firmware update card): the board joins the saved network, downloads
-   `firmware/lora_link_ble.bin` from the page's own address, checks size and SHA-256, installs it and
+   `firmware/lora_link.bin` from the page's own address, checks size and SHA-256, installs it and
    reboots. The phone only has to stay connected for the start and the progress display.
 5. Do step 3 once per board. *Forget* removes the saved network.
 
@@ -34,7 +34,7 @@ scan or download takes seconds and must not stall the BLE host task.
 
 - **Wi-Fi is off** except while a scan, connect or update is running, so normal operation and the
   868 MHz noise floor are as with the BLE-only build.
-- **Where the image comes from:** the phone gives the board the URL (`firmware/lora_link_ble.bin`
+- **Where the image comes from:** the phone gives the board the URL (`firmware/lora_link.bin`
   resolved against the page address) and the SHA-256 from `firmware/manifest.json`
   (`scripts/publish_firmware.sh` writes it). The board hashes what it downloads and only boots it if
   the hash matches. If the deployed manifest and image disagree, for example mid-deploy, the update

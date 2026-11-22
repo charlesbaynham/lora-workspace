@@ -1,14 +1,14 @@
 # Firmware updates over BLE
 
-The `lora_link_ble` firmware can be updated from the phone web app (`web/index.html`),
+The firmware can be updated from the phone web app (`web/index.html`),
 with no USB cable. Code: `src/common/ble_ota.h` (board) and the "Firmware update" card in
 `web/index.html` (phone).
 
 ## Using it
 
-The web app installs the image stored in the repository, `web/firmware/lora_link_ble.bin`; it
+The web app installs the image stored in the repository, `web/firmware/lora_link.bin`; it
 never builds anything. To publish a new version: `scripts/publish_firmware.sh` (builds
-`lora_link_ble`, copies `firmware.bin` there and writes `web/firmware/manifest.json` with the
+`lora_link`, copies `firmware.bin` there and writes `web/firmware/manifest.json` with the
 build stamp and size), then commit both files. Pushing to `master` deploys them with the page.
 
 1. Open the web app, connect to a board. The "Firmware update" card appears if that board's
@@ -53,11 +53,10 @@ CTRL commands: `01 <u32 LE size> <32-byte SHA-256>` begin, `02` end, `03` abort.
 
 ## Limits
 
-- Updating with an image built without `LINK_BLE` (e.g. `lora_link`, `smoke`) works but removes
-  OTA from the board; recover over USB.
+- Installing a diagnostic image (`smoke`, `fem_sweep`) removes OTA from the board; recover over USB.
 - **The partition table is only written by a USB upload, never over the air.** A board flashed
   before the switch to `default_16MB.csv` still has the old 4 MB table with 1.25 MB slots, whatever
-  image it is updated with; give it one USB upload (`pio run -e lora_link_ble -t upload`) to switch.
+  image it is updated with; give it one USB upload (`pio run -t upload`) to switch.
   The new table keeps NVS at the same address, so saved settings (the Wi-Fi network) survive.
   An image larger than the board's slot is refused by the update ("Update.begin" fails).
 - Each published image adds ~600 KB to the git history.

@@ -13,13 +13,11 @@
 
 #include "heltec_v4.h"
 #include "oled_ui.h"
-#ifdef LINK_BLE
 #include "ble_link.h"
 
 // Overrides the Arduino core's weak hook: after an OTA update the new image stays "pending" until
 // ble_ota::confirmBootWhenHealthy() runs in loop(), so a crash on boot rolls back to the old image.
 extern "C" bool verifyRollbackLater() { return true; }
-#endif
 
 using namespace heltec_v4;
 
@@ -54,17 +52,13 @@ static struct {
 
 static bool linkUp() { return peer.seen && millis() - peer.lastMs < LINK_TIMEOUT_MS; }
 
-// Push one event to the phone (no-op unless built with LINK_BLE).
-#ifdef LINK_BLE
+// Push one event to the phone.
 #define BLE_EVENT(...)                         \
   do {                                         \
     char _j[200];                              \
     snprintf(_j, sizeof _j, __VA_ARGS__);      \
     ble_link::notify(_j);                      \
   } while (0)
-#else
-#define BLE_EVENT(...) ((void)0)
-#endif
 
 static void IRAM_ATTR onPacket() { rxFlag = true; }
 
@@ -155,7 +149,6 @@ static void printLink() {
   Serial.println();
 }
 
-#ifdef LINK_BLE
 // Whole link state, so the phone has it as soon as it connects.
 static void sendLinkEvent() {
   char j[256];
@@ -172,7 +165,6 @@ static void sendLinkEvent() {
   snprintf(j + n, sizeof j - n, "}");
   ble_link::notify(j);
 }
-#endif
 
 static void handleRx() {
   uint8_t buf[64];
@@ -188,12 +180,10 @@ static void handleRx() {
     oled_ui::addRssi(rssi);
     Serial.printf("RX  \"%s\"  RSSI %.1f dBm  SNR %.1f dB  freq err %.0f Hz  [ok %lu, bad %lu]\n",
                   (char*)buf, rssi, snr, ferr, (unsigned long)rxCount, (unsigned long)rxBad);
-#ifdef LINK_BLE
     char esc[2 * sizeof buf];
     jsonEscape(esc, sizeof esc, (char*)buf);
     BLE_EVENT("{\"e\":\"rx\",\"m\":\"%s\",\"rssi\":%.1f,\"snr\":%.1f,\"ferr\":%.0f,\"ok\":%lu,\"bad\":%lu}",
               esc, rssi, snr, ferr, (unsigned long)rxCount, (unsigned long)rxBad);
-#endif
     trackPeer((char*)buf, rssi, snr);
     digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
   } else {
@@ -231,12 +221,8 @@ static void fillScreen(oled_ui::Stats& s) {
   s.sf = SF;
   s.cr = CR;
   s.pwr = TX_POWER_DBM;
-#ifdef LINK_BLE
   const auto& w = ble_wifi::status;
   s.wifi = {(uint8_t)w.state, w.pct, w.ssid, w.ip, w.rssi, w.joinedMs != 0, millis() - w.joinedMs, w.err};
-#else
-  s.wifi = {oled_ui::WIFI_OFF, 0, "", "", 0, false, 0, ""};
-#endif
 }
 
 void setup() {
@@ -251,15 +237,9 @@ void setup() {
   Serial.printf("%.1f MHz, BW %.0f kHz, SF%u, CR 4/%u, %d dBm out (SX1262 %d dBm)\n", FREQ_MHZ,
                 BW_KHZ, SF, CR, TX_POWER_DBM, TX_POWER_DBM - FEM_GAIN_DB);
 
-#ifdef HELTEC_V4_GNSS_OFF
-  gnssQuiesce();
-  Serial.println("GNSS held off/in reset");
-#endif
   oled_ui::begin();
-#ifdef LINK_BLE
   // The Wi-Fi jobs block loop() for seconds: let them put their progress on the screen.
   ble_wifi::onChange = [] { oled_ui::show(fillScreen, oled_ui::PAGE_WIFI); };
-#endif
   femInit();
   SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_NSS);
 
@@ -269,7 +249,6 @@ void setup() {
   if ((rc = radio.setDio2AsRfSwitch(true)) != RADIOLIB_ERR_NONE) fail("setDio2AsRfSwitch", rc);
   if ((rc = radio.setCRC(2)) != RADIOLIB_ERR_NONE) fail("setCRC", rc);
 
-#ifdef LINK_BLE
   char name[16], info[200];
   snprintf(name, sizeof name, "LoRa-%s", myId);
   snprintf(info, sizeof info,
@@ -278,17 +257,14 @@ void setup() {
            myId, FREQ_MHZ, BW_KHZ, SF, CR, TX_POWER_DBM);
   ble_link::begin(name, info);
   Serial.printf("BLE advertising as %s\n", name);
-#endif
 
   startRx();
   nextTxMs = millis() + 1000 + random(0, 2000);
 }
 
 void loop() {
-#ifdef LINK_BLE
   ble_ota::confirmBootWhenHealthy();
   ble_wifi::loop();
-#endif
   if (rxFlag) {
     rxFlag = false;
     handleRx();
@@ -306,9 +282,7 @@ void loop() {
     printLink();
   }
   if (changed || (int32_t)(millis() - nextLinkMs) >= 0) {
-#ifdef LINK_BLE
     sendLinkEvent();
-#endif
     nextLinkMs = millis() + 2000;
   }
   static uint32_t nextLinkPrintMs = 10000;

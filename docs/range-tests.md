@@ -3,7 +3,7 @@
 A log of measured link strength between the two boards, with the conditions, so numbers
 taken at different times can be compared fairly. Radio settings are in
 [`lora-bringup.md`](lora-bringup.md): 868.1 MHz, SF7, BW 125 kHz, +10 dBm out. Firmware
-`lora_link_ble` (same link code as `lora_link`). `FB` = `FB75FC`, `FE` = `FE0AAC`.
+`lora_link`. `FB` = `FB75FC`, `FE` = `FE0AAC`.
 
 Read RSSI, not SNR: SNR sits at about 12 dB in every measurement here, including the 30 cm
 one at -12 dBm, so it does not tell the cases apart.
@@ -79,7 +79,7 @@ more), not measured here.
 
 ## How to measure
 
-Both boards run `lora_link`/`lora_link_ble`. Capture 60 s on one board and read the `RX` lines
+Both boards run `lora_link`. Capture 60 s on one board and read the `RX` lines
 (what it hears) and `LINK ... peer hears us at` (what the other board hears of it):
 
 ```fish

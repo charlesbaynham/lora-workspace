@@ -5,15 +5,15 @@ Compiled 2026-11-21 from the schematics and datasheets in
 and the board variant header that PlatformIO already ships. Pin facts also
 appear in [`heltec-v4-hardware.md`](heltec-v4-hardware.md).
 
-**Status:** the link firmware (`src/lora_link`, all environments) now drives the screen; see
+**Status:** the link firmware (`src/lora_link`) now drives the screen; see
 [What the link firmware shows](#what-the-link-firmware-shows). The panel code has **not been seen running on
 a board yet**: the layout was checked by rendering the three pages through U8g2 on a PC, and the build
 compiles, but nobody has looked at a real screen. The standalone example further down is older and also unflashed.
 
 ## What the link firmware shows
 
-`src/common/oled_ui.h`, called from `src/lora_link/main.cpp`. It shows the numbers the phone app shows, on three
-pages (four in the `lora_link_ble` build) that rotate every 5 s; the **PRG** button (GPIO0) steps to the next page. Every page has a title bar with
+`src/common/oled_ui.h`, called from `src/lora_link/main.cpp`. It shows the numbers the phone app shows, on four
+pages that rotate every 5 s; the **PRG** button (GPIO0) steps to the next page. Every page has a title bar with
 the link state (*LINKED* / *ONE-WAY* / *LINK DOWN* / *NO PEER*, decided as in the app) and this board's id.
 
 | Page | Contents (app equivalent) |
@@ -21,7 +21,7 @@ the link state (*LINKED* / *ONE-WAY* / *LINK DOWN* / *NO PEER*, decided as in th
 | signal | peer id and time since its last beacon; RSSI and SNR heard here and heard at the peer (blank unless the link is up and the peer is hearing us); noise floor |
 | counts | beacons sent, received, CRC errors and bad %; lost beacons and lost %; frequency error; frequency, SF, bandwidth, power |
 | chart | RSSI of the last 104 received beacons, with the noise floor dashed; scale at least -120 to -20 dBm, as in the app |
-| Wi-Fi | `lora_link_ble` only: what the Wi-Fi radio is doing (*off*, *scanning*, *joining*, *updating n %*), the saved network, and the last join (IP, signal, how long ago) or, if the last attempt failed, why |
+| Wi-Fi | What the Wi-Fi radio is doing (*off*, *scanning*, *joining*, *updating n %*), the saved network, and the last join (IP, signal, how long ago) or, if the last attempt failed, why |
 
 The Wi-Fi radio is off except while the phone has the board scan, join or update (docs/wifi-ota.md), so on this page
 *Wi-Fi: off* is the normal state. The IP and signal are from the last join since boot, not live. Those jobs block

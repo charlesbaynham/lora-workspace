@@ -13,8 +13,8 @@ syntax; ports as in `scripts/ports.sh`:
 
 ```fish
 set -x PLATFORMIO_CORE_DIR $PWD/.platformio
-uvx --from platformio pio run -e lora_link -t upload --upload-port /dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_90:DA:72:FB:75:FC-if00
-uvx --from platformio pio run -e lora_link_v42 -t upload --upload-port /dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_90:DA:72:FE:0A:AC-if00
+uvx --from platformio pio run -t upload --upload-port /dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_90:DA:72:FB:75:FC-if00
+uvx --from platformio pio run -t upload --upload-port /dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_90:DA:72:FE:0A:AC-if00
 uv run --with pyserial python -I scripts/serial_capture.py /dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_90:DA:72:FB:75:FC-if00 30
 ```
 
@@ -23,14 +23,15 @@ RSSI, SNR, frequency error and an idle noise-floor reading.
 
 | Env | For | Difference |
 |---|---|---|
-| `lora_link` | V4.3 boards (KCT8103L PA), **use this on both** | default |
-| `lora_link_lna` | experiment | receive LNA enabled (GPIO5 low in RX). **Only with a weak signal**, see the LNA warning below |
-| `lora_link_nognss`, `lora_link_nognss_lna` | experiment | GNSS supply off and module held in reset |
-| `lora_link_v42` | V4.2 boards (GC1109 PA), untested on a real V4.2 | also drives GPIO46 high during TX |
+| `lora_link` | V4.3 boards (KCT8103L PA), **the firmware, on both** | default |
 | `fem_sweep` | diagnostic | RX only: steps GPIO7/2/5 through all 8 states and reports noise floor and RSSI (needs another board running `lora_link`) |
 | `smoke` | either | identity, SX1262 check, GNSS detection |
 
 Both boards are V4.3 (confirmed from the silkscreen), so both run `lora_link`.
+
+The build variants named in the measurements below (`lora_link_lna`, `lora_link_nognss[_lna]`, `lora_link_v42`) were
+removed when the project moved to a single firmware. They are in git history before that change. The firmware has
+the receive LNA off, does not touch the GNSS module, and supports V4.3 boards only.
 
 ## What the radio needs
 
@@ -81,7 +82,7 @@ metres of each other.
 | GPIO46 | CPS (PA path) | HIGH for TX; wait 2 ms |
 | DIO2 | CTX | driven by the SX1262 |
 
-Heltec never drives GPIO46 low again in `RadioRx`; `lora_link_v42` does. Neither
+Heltec never drives GPIO46 low again in `RadioRx`; the removed `lora_link_v42` build did. Neither
 choice is verified. The GC1109's truth table is not in any document I have.
 
 ### Deep sleep
@@ -139,7 +140,7 @@ therefore knows both directions of the link. Per board, `src/lora_link/main.cpp`
 - **peer hears us**: the peer's latest beacon carried a report. No report while we hear
   it means the link is one-way (see the antenna note below).
 
-Only one peer is tracked. In the `lora_link_ble` build the same state goes to the
+Only one peer is tracked. The same state goes to the
 phone as a `link` event every 2 s (and on every change); see `web/index.html`.
 
 ## Regulatory (UK/EU)
