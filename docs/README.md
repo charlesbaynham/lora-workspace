@@ -11,6 +11,8 @@ Reference material for the Heltec WiFi LoRa 32 V4 boards.
   estimates, and solar panel sizing with firmware power targets.
 - [`oled-display.md`](oled-display.md): how to power and drive the on-board
   SSD1315 OLED (Vext, I2C pins, library choice, compiling example).
+- [`range-tests.md`](range-tests.md): log of measured link strength (RSSI) between the two
+  boards with antennas and placement, so readings can be compared fairly.
 - [`ble-ota.md`](ble-ota.md): updating the firmware from the phone over BLE:
   protocol, pairing passkey, rollback, limits.
 - [`heltec-official/`](heltec-official/): Heltec's datasheets, schematics and
