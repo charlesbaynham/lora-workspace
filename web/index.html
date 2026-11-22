@@ -44,6 +44,18 @@
   #ota progress { width:100%; }
   #otaMsg { font-size:14px; } #otaMsg.bad { color:var(--bad); }
   small { color:var(--dim); }
+  #wifi { display:grid; gap:8px; }
+  #wifi .sub { font-size:13px; color:var(--dim); }
+  .row { display:flex; gap:8px; flex-wrap:wrap; }
+  button.plain { background:transparent; color:var(--accent); }
+  #wifiList { margin:0; padding:0; list-style:none; display:grid; gap:6px; }
+  #wifiList button { width:100%; text-align:left; display:flex; justify-content:space-between; gap:8px;
+                     background:transparent; color:var(--fg); border-color:var(--line); }
+  #wifiList button.sel { border-color:var(--accent); }
+  #wifiList .r { color:var(--dim); font-variant-numeric: tabular-nums; white-space:nowrap; }
+  #wifiForm { display:grid; gap:8px; }
+  #wifiForm input { font:inherit; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--fg); min-width:0; }
+  #wifiMsg { font-size:14px; } #wifiMsg.bad { color:var(--bad); }
 </style>
 </head>
 <body>
@@ -89,12 +101,35 @@
   <section class="card" id="ota" hidden>
     <div><b>Firmware update</b></div>
     <div class="sub" id="fw"></div>
-    <button id="fwGo" disabled>Update firmware</button>
+    <div class="row">
+      <button id="fwGo" disabled>Update firmware</button>
+      <button id="fwWifi" disabled hidden>Update over Wi-Fi</button>
+    </div>
     <progress id="fwBar" max="1" value="0" hidden></progress>
     <div id="otaMsg"></div>
     <small>Installs the firmware published with this page (<code>web/firmware/</code>). The first time, Android asks to
     pair: enter the passkey (123456 unless <code>OTA_PASSKEY</code> was changed). Keep the screen on and stay close;
-    it takes about 3 minutes.</small>
+    it takes about 3 minutes. <em>Update over Wi-Fi</em> has the board download the same image over the
+    Wi-Fi network set up below, which is much quicker; the phone only has to stay connected.</small>
+  </section>
+
+  <section class="card" id="wifi" hidden>
+    <div><b>Wi-Fi</b> <small id="wifiSaved"></small></div>
+    <div class="sub">For updating over Wi-Fi. The board keeps the network and password in its own memory,
+    through updates and USB uploads, and switches Wi-Fi on only while scanning or updating.</div>
+    <div class="row">
+      <button id="wifiScan">Choose network…</button>
+      <button id="wifiForget" class="plain" hidden>Forget</button>
+    </div>
+    <ul id="wifiList" hidden></ul>
+    <form id="wifiForm" hidden autocomplete="off">
+      <input id="wifiSsid" placeholder="Network name" maxlength="32" autocapitalize="off" autocomplete="off" spellcheck="false" required>
+      <input id="wifiPass" type="password" placeholder="Password (empty for an open network)" maxlength="63" autocomplete="off">
+      <button id="wifiConnect" type="submit">Connect and save</button>
+    </form>
+    <div id="wifiMsg"></div>
+    <small>The first time, Android asks to pair (same passkey as the update). The password travels over the
+    encrypted BLE link. Only 2.4 GHz networks work.</small>
   </section>
 
   <section class="card"><ul id="log"></ul></section>
@@ -108,6 +143,7 @@ const INFO    = '6e4c0002-7a1b-4c5e-9d0a-5b1e0c0a4a01';
 const EVENT   = '6e4c0003-7a1b-4c5e-9d0a-5b1e0c0a4a01';
 const OTA_CTRL = '6e4c0004-7a1b-4c5e-9d0a-5b1e0c0a4a01';   // firmware update, see src/common/ble_ota.h
 const OTA_DATA = '6e4c0005-7a1b-4c5e-9d0a-5b1e0c0a4a01';
+const WIFI     = '6e4c0006-7a1b-4c5e-9d0a-5b1e0c0a4a01';   // Wi-Fi setup and update, see src/common/ble_wifi.h
 const OTA_CHUNK = 240;   // < ATT MTU 247 - 3
 const MAX_POINTS = 120, MAX_LOG = 100;
 
@@ -117,6 +153,7 @@ const state = { tx: 0, ok: 0, bad: 0, noise: null, rssi: [],   // rssi: [{t, v}]
 let device = null, wakeLock = null, retry = 0, userDisconnected = false;
 let ota = null;          // { ctrl, data } while connected to a board that supports updates
 let published = null;    // firmware/manifest.json: { fw, size } of the image stored next to this page
+let wifi = null, wifiH = null, wifiBusy = false;   // wifi: { ch } while connected to a board with Wi-Fi support
 let otaBusy = false, otaErr = null, otaWait = null, otaPending = null;   // otaPending: build running before the update
 
 function setStatus(text, on) { $('status').textContent = text; $('status').classList.toggle('on', !!on); }
@@ -255,6 +292,8 @@ function drawChart() {
 function otaMsg(text, bad) { $('otaMsg').textContent = text; $('otaMsg').classList.toggle('bad', !!bad); }
 function otaButtons() {
   $('fwGo').disabled = otaBusy || !ota || !published;
+  $('fwWifi').hidden = !wifi;
+  $('fwWifi').disabled = otaBusy || wifiBusy || !ota || !wifi || !published?.sha256;
   $('fwGo').textContent = ota && published && ota.fw === published.fw ? 'Reinstall firmware' : 'Update firmware';
   if (!ota) return;
   const same = published && ota.fw === published.fw;
@@ -333,6 +372,159 @@ async function flash() {
   }
 }
 
+// ---- Firmware update over Wi-Fi: the board downloads the published image itself. Protocol: src/common/ble_wifi.h ----
+async function flashWifi() {
+  if (!published || !ota || !wifi || otaBusy) return;
+  const url = new URL('firmware/lora_link_ble.bin', location.href);
+  if (!published.sha256) { otaMsg('The published manifest has no sha256: republish the firmware.', true); return; }
+  if (/^(localhost|127\.|\[::1\])/.test(url.hostname)) {
+    otaMsg('The board cannot reach ' + url.host + '. Open the deployed page instead.', true); return;
+  }
+  const sha = Uint8Array.from(published.sha256.match(/../g), h => parseInt(h, 16));
+  const u8 = new TextEncoder().encode(url.href);
+  if (sha.length !== 32 || 1 + 32 + u8.length > 244) { otaMsg('Unusable manifest or URL.', true); return; }
+  const cmd = new Uint8Array(1 + 32 + u8.length);
+  cmd[0] = 0x13; cmd.set(sha, 1); cmd.set(u8, 33);
+
+  const fwBefore = ota.fw;
+  otaBusy = true; otaErr = null; otaButtons();
+  $('fwBar').hidden = false; $('fwBar').value = 0;
+  try {
+    otaMsg('Starting… (accept the pairing request if Android shows one)');
+    await wifiOp(cmd, m => {
+      if (m.wifi === 'upd') {
+        $('fwBar').value = m.p / 100;
+        otaMsg(m.p === 0 ? 'The board is joining Wi-Fi…' : `The board is downloading: ${m.p} %`);
+        return false;
+      }
+      return m.wifi === 'updated';
+    }, 120000);
+    otaMsg('Done. The board is restarting…');
+    logLine('firmware downloaded over Wi-Fi, board restarting');
+    otaPending = fwBefore;              // on reconnect, setupOta() compares the running build with this
+  } catch (err) {
+    otaPending = null;
+    otaMsg('Wi-Fi update failed: ' + err.message, true);
+    logLine('Wi-Fi update failed: ' + err.message, 'bad');
+  } finally {
+    otaBusy = false; $('fwBar').hidden = true; otaButtons();
+  }
+}
+
+// ---- Wi-Fi setup ----
+function wifiMsg(text, bad) { $('wifiMsg').textContent = text || ''; $('wifiMsg').classList.toggle('bad', !!bad); }
+function wifiButtons() {
+  for (const id of ['wifiScan', 'wifiForget', 'wifiConnect']) $(id).disabled = wifiBusy || otaBusy;
+  otaButtons();
+}
+
+// Send a command, then resolve with the first notification onMsg() accepts (it returns true to stop). A
+// {"wifi":"err"} notification rejects. The handler is installed before the write so nothing is missed; the
+// timeout only starts once the write is done, since the write waits for the pairing dialog.
+async function wifiOp(bytes, onMsg, ms) {
+  let finish, fail, timer;
+  const done = new Promise((res, rej) => { finish = res; fail = rej; });
+  wifiH = m => { if (m.wifi === 'err') fail(new Error(m.m)); else if (onMsg(m)) finish(m); };
+  try {
+    await wifi.ch.writeValueWithResponse(bytes);
+    timer = setTimeout(() => fail(new Error('no answer from the board')), ms);
+    return await done;
+  } finally { clearTimeout(timer); wifiH = null; }
+}
+
+function onWifiStatus(e) {
+  let m;
+  try { m = JSON.parse(new TextDecoder().decode(e.target.value)); } catch (err) { return; }
+  if (wifiH) wifiH(m);
+}
+
+async function readSaved() {          // the first read triggers pairing
+  const v = await wifi.ch.readValue();
+  renderSaved(JSON.parse(new TextDecoder().decode(v)).ssid);
+}
+function renderSaved(ssid) {
+  $('wifiSaved').textContent = ssid ? 'Saved network: ' + ssid : 'No network saved';
+  $('wifiForget').hidden = !ssid;
+}
+
+function renderAps(aps) {
+  const ul = $('wifiList');
+  ul.replaceChildren(...aps.map(a => {
+    const li = document.createElement('li'), b = document.createElement('button');
+    b.type = 'button';
+    const n = document.createElement('span'), r = document.createElement('span');
+    n.textContent = a.s; r.className = 'r'; r.textContent = `${a.o ? 'open · ' : ''}${a.r} dBm`;   // textContent: names are untrusted
+    b.append(n, r);
+    b.addEventListener('click', () => {
+      for (const x of ul.querySelectorAll('button')) x.classList.remove('sel');
+      b.classList.add('sel');
+      $('wifiSsid').value = a.s; $('wifiPass').value = '';
+      (a.o ? $('wifiConnect') : $('wifiPass')).focus();
+    });
+    li.append(b);
+    return li;
+  }));
+  ul.hidden = !aps.length;
+}
+
+async function wifiScan() {
+  wifiBusy = true; wifiButtons();
+  wifiMsg('Scanning… (accept the pairing request if Android shows one)');
+  try {
+    await readSaved();
+    const aps = [];
+    await wifiOp(Uint8Array.of(0x10), m => { if (m.wifi === 'ap') aps.push(m); return m.wifi === 'scan'; }, 30000);
+    renderAps(aps);
+    $('wifiForm').hidden = false;
+    wifiMsg(aps.length ? 'Pick a network, or type a name for a hidden one.' : 'No networks found. Type a name for a hidden network.');
+  } catch (err) { wifiMsg('Scan failed: ' + err.message, true); }
+  finally { wifiBusy = false; wifiButtons(); }
+}
+
+async function wifiConnect(ev) {
+  ev.preventDefault();
+  const enc = new TextEncoder(), ssid = enc.encode($('wifiSsid').value), pass = enc.encode($('wifiPass').value);
+  if (ssid.length < 1 || ssid.length > 32) return wifiMsg('The network name must be 1 to 32 bytes.', true);
+  if (pass.length && (pass.length < 8 || pass.length > 63)) return wifiMsg('A Wi-Fi password is 8 to 63 characters.', true);
+  const cmd = new Uint8Array(1 + ssid.length + 1 + pass.length);
+  cmd[0] = 0x11; cmd.set(ssid, 1); cmd.set(pass, 2 + ssid.length);
+  wifiBusy = true; wifiButtons();
+  wifiMsg('Joining the network…');
+  try {
+    const m = await wifiOp(cmd, m => m.wifi === 'ok', 30000);
+    wifiMsg(`Connected to ${m.ssid} (${m.ip}, ${m.rssi} dBm) and saved. You can now update over Wi-Fi.`);
+    logLine('Wi-Fi network saved: ' + m.ssid);
+    renderSaved(m.ssid);
+    $('wifiPass').value = '';
+  } catch (err) { wifiMsg('Not saved: ' + err.message, true); }
+  finally { wifiBusy = false; wifiButtons(); }
+}
+
+async function wifiForget() {
+  wifiBusy = true; wifiButtons();
+  try {
+    await wifiOp(Uint8Array.of(0x12), m => m.wifi === 'forgotten', 10000);
+    renderSaved('');
+    wifiMsg('Forgotten.');
+  } catch (err) { wifiMsg('Failed: ' + err.message, true); }
+  finally { wifiBusy = false; wifiButtons(); }
+}
+
+async function setupWifi(svc, info) {
+  wifi = null;
+  $('wifi').hidden = true;
+  if (!info || !info.wifi) return;      // firmware without Wi-Fi support
+  try {
+    const ch = await svc.getCharacteristic(WIFI);
+    ch.addEventListener('characteristicvaluechanged', onWifiStatus);
+    await ch.startNotifications();
+    wifi = { ch };
+  } catch (e) { logLine('Wi-Fi setup unavailable: ' + e.message, 'bad'); return; }
+  $('wifiSaved').textContent = '';
+  $('wifiList').hidden = true; $('wifiForm').hidden = true; $('wifiForget').hidden = true; wifiMsg('');
+  $('wifi').hidden = false;
+}
+
 async function setupOta(svc, info) {
   ota = null;
   $('ota').hidden = true;
@@ -362,6 +554,7 @@ async function setup(server) {
     $('dev').textContent = info.id;
     $('radio').textContent = `${info.freq} MHz · SF${info.sf} · BW${info.bw} · ${info.pwr} dBm`;
   } catch (e) { logLine('could not read info: ' + e.message, 'bad'); }
+  await setupWifi(svc, info);
   await setupOta(svc, info);
   const ch = await svc.getCharacteristic(EVENT);
   ch.addEventListener('characteristicvaluechanged', onNotification);
@@ -406,7 +599,7 @@ async function pick() {
     setStatus('disconnected');
     $('connect').textContent = 'Connect';
     state.link = null; renderLink();
-    ota = null; otaButtons();
+    ota = null; wifi = null; wifiH = null; wifiBusy = false; $('wifi').hidden = true; otaButtons();
     if (!userDisconnected) { logLine('disconnected', 'bad'); scheduleRetry(); }
   });
   await connect();
@@ -420,6 +613,10 @@ document.addEventListener('visibilitychange', () => {
 });
 
 $('fwGo').addEventListener('click', flash);
+$('fwWifi').addEventListener('click', flashWifi);
+$('wifiScan').addEventListener('click', wifiScan);
+$('wifiForget').addEventListener('click', wifiForget);
+$('wifiForm').addEventListener('submit', wifiConnect);
 $('connect').addEventListener('click', () => {
   if (device?.gatt.connected) { userDisconnected = true; device.gatt.disconnect(); wakeLock?.release(); }
   else pick();

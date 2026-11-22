@@ -16,5 +16,5 @@ fw=$(grep -a -o '"fw":"[^"]*"' "$bin" | head -1 | sed 's/^"fw":"//; s/"$//')
 
 mkdir -p web/firmware
 cp "$bin" web/firmware/lora_link_ble.bin
-printf '{"fw":"%s","size":%d}\n' "$fw" "$(stat -c %s "$bin")" > web/firmware/manifest.json
+printf '{"fw":"%s","size":%d,"sha256":"%s"}\n' "$fw" "$(stat -c %s "$bin")" "$(sha256sum "$bin" | cut -d' ' -f1)" > web/firmware/manifest.json
 echo "published build $fw ($(stat -c %s "$bin") bytes) to web/firmware/"

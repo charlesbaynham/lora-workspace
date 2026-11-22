@@ -63,6 +63,11 @@ refreshed by hand with `scripts/publish_firmware.sh` (builds `lora_link_ble`, co
 manifest there; commit the result). Pairing passkey: `123456` (change it with `-DOTA_PASSKEY=...`).
 Details, protocol and limits: [`docs/ble-ota.md`](docs/ble-ota.md). The first OTA-capable build goes over USB.
 
+At home, the same button row has *Update over Wi-Fi*, which is much faster: pick the Wi-Fi network once
+in the page's Wi-Fi card (scan, choose, password; the board keeps it in its own flash, across updates
+and USB uploads; nothing is in the repository or the image), then the board downloads the published image
+itself. See [`docs/wifi-ota.md`](docs/wifi-ota.md).
+
 ## One-time: serial permissions
 
 The boards enumerate as `root:dialout 0660`. Either join the group (needs re-login):
@@ -84,6 +89,7 @@ sudo udevadm control --reload; and sudo udevadm trigger
 - `src/common/heltec_v4.h`: pins and front-end control
 - `src/common/ble_link.h`: BLE GATT feed used by the `lora_link_ble` env
 - `src/common/ble_ota.h`: over-the-air firmware update over BLE ([`docs/ble-ota.md`](docs/ble-ota.md))
+- `src/common/ble_wifi.h`: Wi-Fi network setup and firmware update over Wi-Fi ([`docs/wifi-ota.md`](docs/wifi-ota.md))
 - `web/firmware/`: the published firmware image the web app installs (`scripts/publish_firmware.sh`)
 - `web/`: phone web app (Web Bluetooth) and its systemd unit, see below
 - `src/smoke/`: identity, SX1262 check, GNSS detection

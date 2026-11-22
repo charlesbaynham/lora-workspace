@@ -43,6 +43,8 @@ static uint8_t wantHash[32];
 static uint32_t total = 0, got = 0;
 static bool active = false;
 
+inline bool busy() { return active; }
+
 static void status(const char* json) {
   ctrlChar->setValue(json);
   ctrlChar->notify();

@@ -19,6 +19,8 @@ build stamp and size), then commit both files. Pushing to `master` deploys them 
    interval). Keep the screen on. The board restarts and the app reconnects and reports the new
    build time (`__DATE__ __TIME__` of `main.cpp`'s last compile).
 
+For a much faster update at home, see [`wifi-ota.md`](wifi-ota.md).
+
 Update each board separately. The very first OTA-capable build has to go over USB.
 
 ## How it works

@@ -184,7 +184,7 @@ static void handleRx() {
                   (char*)buf, rssi, snr, ferr, (unsigned long)rxCount, (unsigned long)rxBad);
 #ifdef LINK_BLE
     char esc[2 * sizeof buf];
-    ble_link::jsonEscape(esc, sizeof esc, (char*)buf);
+    jsonEscape(esc, sizeof esc, (char*)buf);
     BLE_EVENT("{\"e\":\"rx\",\"m\":\"%s\",\"rssi\":%.1f,\"snr\":%.1f,\"ferr\":%.0f,\"ok\":%lu,\"bad\":%lu}",
               esc, rssi, snr, ferr, (unsigned long)rxCount, (unsigned long)rxBad);
 #endif
@@ -228,7 +228,7 @@ void setup() {
   char name[16], info[200];
   snprintf(name, sizeof name, "LoRa-%s", myId);
   snprintf(info, sizeof info,
-           "{\"id\":\"%s\",\"freq\":%.1f,\"bw\":%.0f,\"sf\":%u,\"cr\":%u,\"pwr\":%d,\"ota\":1,"
+           "{\"id\":\"%s\",\"freq\":%.1f,\"bw\":%.0f,\"sf\":%u,\"cr\":%u,\"pwr\":%d,\"ota\":1,\"wifi\":1,"
            "\"fw\":\"" __DATE__ " " __TIME__ "\"}",
            myId, FREQ_MHZ, BW_KHZ, SF, CR, TX_POWER_DBM);
   ble_link::begin(name, info);
@@ -242,6 +242,7 @@ void setup() {
 void loop() {
 #ifdef LINK_BLE
   ble_ota::confirmBootWhenHealthy();
+  ble_wifi::loop();
 #endif
   if (rxFlag) {
     rxFlag = false;
