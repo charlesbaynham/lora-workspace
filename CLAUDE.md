@@ -26,3 +26,7 @@ another flashable image. Put new features in `lora_link`.
 
 The web app (`web/`) is deployed automatically, outside this repository: a commit pushed
 to `master` goes live within 2 minutes. There is no manual deploy step.
+
+The firmware image is **built by the server** from `master` (`scripts/build_release.sh`, a few
+minutes after the page updates) and is not committed: never add `.bin` files or `web/firmware/` to git.
+The build is pinned in `platformio.ini`; keep it deterministic.

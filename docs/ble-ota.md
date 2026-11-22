@@ -6,10 +6,17 @@ with no USB cable. Code: `src/common/ble_ota.h` (board) and the "Firmware update
 
 ## Using it
 
-The web app installs the image stored in the repository, `web/firmware/lora_link.bin`; it
-never builds anything. To publish a new version: `scripts/publish_firmware.sh` (builds
-`lora_link`, copies `firmware.bin` there and writes `web/firmware/manifest.json` with the
-build stamp and size), then commit both files. Pushing to `master` deploys them with the page.
+The web app installs the image the web server built from the latest commit on `master`; no image is
+stored in git. The server's guest (homelab-infra, `lora/lora.nix`) checks for a new commit every 2 minutes,
+runs `scripts/build_release.sh` and serves the result under `firmware/`: `manifest.json` (build stamp, size,
+SHA-256 and the image's file name) and the image itself, named `lora_link-<hash>.bin`. The manifest is
+written last, so the page never sees a manifest for an image that is not there yet. The first build after a
+fresh guest takes several minutes (it downloads the toolchain); until it finishes, the page says that no
+firmware is published. A failed build leaves the previous firmware in place; its log is
+`journalctl -u lora-build` on the guest.
+
+To try the update flow from your own machine: `scripts/build_release.sh web/firmware` (git-ignored), then
+serve `web/` as in the README.
 
 1. Open the web app, connect to a board. The "Firmware update" card appears if that board's
    firmware supports it, and says which build it runs and which is published.
@@ -58,5 +65,4 @@ CTRL commands: `01 <u32 LE size> <32-byte SHA-256>` begin, `02` end, `03` abort.
   image it is updated with; give it one USB upload (`pio run -t upload`) to switch.
   The new table keeps NVS at the same address, so saved settings (the Wi-Fi network) survive.
   An image larger than the board's slot is refused by the update ("Update.begin" fails).
-- Each published image adds ~600 KB to the git history.
 - Speed: the phone, not the board, picks the connection interval; the board asks for 15-30 ms.

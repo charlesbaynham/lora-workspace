@@ -217,7 +217,7 @@ two-board network that mostly talks to itself.
 | Control | everything, 48 ms packets, 1 % duty | enforced 10 % duty cycle, fixed packet format |
 | LNA | off | **on by default** on V4.3, with an auto mode in development firmware |
 
-The web app, the `src/` firmware and `web/firmware/` stay in the repo and are not touched by any of
+The web app and the `src/` firmware stay in the repo and are not touched by any of
 this. Flashing Meshtastic does not delete them, but a board running Meshtastic will not show up in the web
 app.
 

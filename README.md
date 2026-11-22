@@ -64,9 +64,8 @@ The GATT UUIDs are defined in both `src/common/ble_link.h` and `web/index.html`;
 ## Firmware updates from the phone
 
 The firmware can be updated over BLE from the same web app (no USB): connect to a board and
-tap *Update firmware*. The app installs whatever image is stored in `web/firmware/`; that is
-refreshed by hand with `scripts/publish_firmware.sh` (builds `lora_link`, copies the image and
-manifest there; commit the result). Pairing passkey: `123456` (change it with `-DOTA_PASSKEY=...`).
+tap *Update firmware*. The app installs the image the web server builds from the latest `master`
+(`scripts/build_release.sh`, run on the server for each push; images are not committed). Pairing passkey: `123456` (change it with `-DOTA_PASSKEY=...`).
 Details, protocol and limits: [`docs/ble-ota.md`](docs/ble-ota.md). A board that does not yet run this firmware needs one USB upload first.
 
 At home, the same button row has *Update over Wi-Fi*, which is much faster: pick the Wi-Fi network once
@@ -96,6 +95,6 @@ sudo udevadm control --reload; and sudo udevadm trigger
 - `src/common/ble_link.h`: BLE GATT feed for the phone web app
 - `src/common/ble_ota.h`: over-the-air firmware update over BLE ([`docs/ble-ota.md`](docs/ble-ota.md))
 - `src/common/ble_wifi.h`: Wi-Fi network setup and firmware update over Wi-Fi ([`docs/wifi-ota.md`](docs/wifi-ota.md))
-- `web/firmware/`: the published firmware image the web app installs (`scripts/publish_firmware.sh`)
+- `scripts/build_release.sh`: builds `lora_link` into a release directory (image + manifest) for the web app; run by the server on each push
 - `web/`: phone web app (Web Bluetooth) and its systemd unit, see below
 - `docs/`: hardware and radio reference, Heltec's datasheets and schematics

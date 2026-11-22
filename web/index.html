@@ -107,7 +107,7 @@
     </div>
     <progress id="fwBar" max="1" value="0" hidden></progress>
     <div id="otaMsg"></div>
-    <small>Installs the firmware published with this page (<code>web/firmware/</code>). The first time, Android asks to
+    <small>Installs the firmware the server built from the latest commit. The first time, Android asks to
     pair: enter the passkey (123456 unless <code>OTA_PASSKEY</code> was changed). Keep the screen on and stay close;
     it takes about 3 minutes. <em>Update over Wi-Fi</em> has the board download the same image over the
     Wi-Fi network set up below, which is much quicker; the phone only has to stay connected.</small>
@@ -330,7 +330,7 @@ async function flash() {
   $('fwBar').hidden = false; $('fwBar').value = 0;
   try {
     otaMsg('Downloading the firmware…');
-    const res = await fetch('firmware/lora_link.bin', { cache: 'no-store' });
+    const res = await fetch('firmware/' + published.file, { cache: 'no-store' });
     if (!res.ok) throw new Error('could not download the firmware (' + res.status + ')');
     const img = new Uint8Array(await res.arrayBuffer());
     if (img.length !== published.size) throw new Error('published firmware does not match its manifest');
@@ -375,7 +375,7 @@ async function flash() {
 // ---- Firmware update over Wi-Fi: the board downloads the published image itself. Protocol: src/common/ble_wifi.h ----
 async function flashWifi() {
   if (!published || !ota || !wifi || otaBusy) return;
-  const url = new URL('firmware/lora_link.bin', location.href);
+  const url = new URL('firmware/' + published.file, location.href);
   if (!published.sha256) { otaMsg('The published manifest has no sha256: republish the firmware.', true); return; }
   if (/^(localhost|127\.|\[::1\])/.test(url.hostname)) {
     otaMsg('The board cannot reach ' + url.host + '. Open the deployed page instead.', true); return;
