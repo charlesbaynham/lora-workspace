@@ -57,10 +57,11 @@ The GATT UUIDs are defined in both `src/common/ble_link.h` and `web/index.html`;
 
 ## Firmware updates from the phone
 
-`lora_link_ble` can be updated over BLE from the same web app (no USB): connect to a board,
-choose `.pio/build/lora_link_ble/firmware.bin` in the *Firmware update* card, and tap the
-button. Pairing passkey: `123456` (change it with `-DOTA_PASSKEY=...`). Details, protocol and
-limits: [`docs/ble-ota.md`](docs/ble-ota.md). The first OTA-capable build goes over USB.
+`lora_link_ble` can be updated over BLE from the same web app (no USB): connect to a board and
+tap *Update firmware*. The app installs whatever image is stored in `web/firmware/`; that is
+refreshed by hand with `scripts/publish_firmware.sh` (builds `lora_link_ble`, copies the image and
+manifest there; commit the result). Pairing passkey: `123456` (change it with `-DOTA_PASSKEY=...`).
+Details, protocol and limits: [`docs/ble-ota.md`](docs/ble-ota.md). The first OTA-capable build goes over USB.
 
 ## One-time: serial permissions
 
@@ -83,6 +84,7 @@ sudo udevadm control --reload; and sudo udevadm trigger
 - `src/common/heltec_v4.h`: pins and front-end control
 - `src/common/ble_link.h`: BLE GATT feed used by the `lora_link_ble` env
 - `src/common/ble_ota.h`: over-the-air firmware update over BLE ([`docs/ble-ota.md`](docs/ble-ota.md))
+- `web/firmware/`: the published firmware image the web app installs (`scripts/publish_firmware.sh`)
 - `web/`: phone web app (Web Bluetooth) and its systemd unit, see below
 - `src/smoke/`: identity, SX1262 check, GNSS detection
 - `docs/`: hardware and radio reference, Heltec's datasheets and schematics

@@ -6,13 +6,16 @@ with no USB cable. Code: `src/common/ble_ota.h` (board) and the "Firmware update
 
 ## Using it
 
-1. Build: `pio run -e lora_link_ble`. The image is `.pio/build/lora_link_ble/firmware.bin`
-   (not `bootloader.bin` or `partitions.bin`). Get it onto the phone (Nextcloud, `adb push`, ...).
-2. Open the web app, connect to a board. The "Firmware update" card appears if that board's
-   firmware supports it.
-3. Choose the `.bin`, tap *Update firmware*. The first time, Android asks to pair: enter the
+The web app installs the image stored in the repository, `web/firmware/lora_link_ble.bin`; it
+never builds anything. To publish a new version: `scripts/publish_firmware.sh` (builds
+`lora_link_ble`, copies `firmware.bin` there and writes `web/firmware/manifest.json` with the
+build stamp and size), then commit both files. Pushing to `master` deploys them with the page.
+
+1. Open the web app, connect to a board. The "Firmware update" card appears if that board's
+   firmware supports it, and says which build it runs and which is published.
+2. Tap *Update firmware*. The first time, Android asks to pair: enter the
    passkey (123456 unless you set `-DOTA_PASSKEY=<n>` in `build_flags`; do change it).
-4. It takes about 3 minutes for 600 KB (about 4 KB/s, one acknowledged write per connection
+3. It takes about 3 minutes for 600 KB (about 4 KB/s, one acknowledged write per connection
    interval). Keep the screen on. The board restarts and the app reconnects and reports the new
    build time (`__DATE__ __TIME__` of `main.cpp`'s last compile).
 
@@ -52,4 +55,5 @@ CTRL commands: `01 <u32 LE size> <32-byte SHA-256>` begin, `02` end, `03` abort.
   OTA from the board; recover over USB.
 - If firmware.bin outgrows the 1.25 MB slot, set `board_build.partitions = default_16MB.csv`
   (two 6.25 MB slots) and flash once over USB; the partition table is not updated over the air.
+- Each published image adds ~600 KB to the git history.
 - Speed: the phone, not the board, picks the connection interval; the board asks for 15-30 ms.

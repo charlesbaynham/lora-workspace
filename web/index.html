@@ -40,7 +40,7 @@
   #log .t { color:var(--dim); } #log .bad { color:var(--bad); }
   #msg { color:var(--bad); font-size:14px; }
   #ota { display:grid; gap:8px; }
-  #ota input[type=file] { width:100%; font:inherit; }
+  #ota .sub { font-size:13px; color:var(--dim); }
   #ota progress { width:100%; }
   #otaMsg { font-size:14px; } #otaMsg.bad { color:var(--bad); }
   small { color:var(--dim); }
@@ -87,13 +87,14 @@
   </section>
 
   <section class="card" id="ota" hidden>
-    <div><b>Firmware update</b> <small id="fw"></small></div>
-    <input type="file" id="fwFile" accept=".bin">
+    <div><b>Firmware update</b></div>
+    <div class="sub" id="fw"></div>
     <button id="fwGo" disabled>Update firmware</button>
     <progress id="fwBar" max="1" value="0" hidden></progress>
     <div id="otaMsg"></div>
-    <small>Choose <code>.pio/build/lora_link_ble/firmware.bin</code>. The first time, Android asks to pair: enter the
-    passkey (123456 unless <code>OTA_PASSKEY</code> was changed). Keep the screen on and stay close; it takes about 3 minutes.</small>
+    <small>Installs the firmware published with this page (<code>web/firmware/</code>). The first time, Android asks to
+    pair: enter the passkey (123456 unless <code>OTA_PASSKEY</code> was changed). Keep the screen on and stay close;
+    it takes about 3 minutes.</small>
   </section>
 
   <section class="card"><ul id="log"></ul></section>
@@ -115,6 +116,7 @@ const state = { tx: 0, ok: 0, bad: 0, noise: null, rssi: [],   // rssi: [{t, v}]
                 link: null };   // latest 'link' event from the board, plus .at (ms when received, age-corrected)
 let device = null, wakeLock = null, retry = 0, userDisconnected = false;
 let ota = null;          // { ctrl, data } while connected to a board that supports updates
+let published = null;    // firmware/manifest.json: { fw, size } of the image stored next to this page
 let otaBusy = false, otaErr = null, otaWait = null, otaPending = null;   // otaPending: build running before the update
 
 function setStatus(text, on) { $('status').textContent = text; $('status').classList.toggle('on', !!on); }
@@ -251,7 +253,22 @@ function drawChart() {
 
 // ---- Firmware update over BLE. Protocol: src/common/ble_ota.h ----
 function otaMsg(text, bad) { $('otaMsg').textContent = text; $('otaMsg').classList.toggle('bad', !!bad); }
-function otaButtons() { $('fwGo').disabled = otaBusy || !ota || !$('fwFile').files.length; $('fwFile').disabled = otaBusy; }
+function otaButtons() {
+  $('fwGo').disabled = otaBusy || !ota || !published;
+  $('fwGo').textContent = ota && published && ota.fw === published.fw ? 'Reinstall firmware' : 'Update firmware';
+  if (!ota) return;
+  const same = published && ota.fw === published.fw;
+  $('fw').textContent = `Running build ${ota.fw}. ` +
+    (!published ? 'No firmware is published with this page.' : same ? 'This is the published build.' : `Published build: ${published.fw}.`);
+}
+
+async function loadPublished() {
+  published = null;
+  try {
+    const r = await fetch('firmware/manifest.json', { cache: 'no-store' });
+    if (r.ok) published = await r.json();
+  } catch (e) { /* offline or not published */ }
+}
 
 function onOtaStatus(e) {
   let m;
@@ -268,14 +285,17 @@ function nextOtaStatus(ms) {          // call BEFORE the write that triggers the
 }
 
 async function flash() {
-  const file = $('fwFile').files[0];
-  if (!file || !ota || otaBusy) return;
+  if (!published || !ota || otaBusy) return;
   const fwBefore = ota.fw;
   otaBusy = true; otaErr = null; otaButtons();
   $('fwBar').hidden = false; $('fwBar').value = 0;
   try {
-    const img = new Uint8Array(await file.arrayBuffer());
-    if (img[0] !== 0xE9) throw new Error('not an ESP32 firmware image (use firmware.bin, not bootloader.bin)');
+    otaMsg('Downloading the firmware…');
+    const res = await fetch('firmware/lora_link_ble.bin', { cache: 'no-store' });
+    if (!res.ok) throw new Error('could not download the firmware (' + res.status + ')');
+    const img = new Uint8Array(await res.arrayBuffer());
+    if (img.length !== published.size) throw new Error('published firmware does not match its manifest');
+    if (img[0] !== 0xE9) throw new Error('published file is not an ESP32 firmware image');
     const sha = new Uint8Array(await crypto.subtle.digest('SHA-256', img));
     const begin = new Uint8Array(37);
     begin[0] = 1; new DataView(begin.buffer).setUint32(1, img.length, true); begin.set(sha, 5);
@@ -323,7 +343,7 @@ async function setupOta(svc, info) {
     await ctrl.startNotifications();
     ota = { ctrl, data, fw: info.fw };
   } catch (e) { logLine('firmware update unavailable: ' + e.message, 'bad'); return; }
-  $('fw').textContent = 'running build ' + info.fw;
+  await loadPublished();
   $('ota').hidden = false;
   if (otaPending !== null) {            // we just reconnected after an update
     const ok = info.fw !== otaPending;
@@ -399,7 +419,6 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && device?.gatt.connected) keepAwake();
 });
 
-$('fwFile').addEventListener('change', otaButtons);
 $('fwGo').addEventListener('click', flash);
 $('connect').addEventListener('click', () => {
   if (device?.gatt.connected) { userDisconnected = true; device.gatt.disconnect(); wakeLock?.release(); }
