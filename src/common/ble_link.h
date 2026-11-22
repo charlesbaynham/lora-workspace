@@ -27,7 +27,8 @@ inline void begin(const char* advertiseName, const char* infoJson) {
   NimBLEDevice::init(advertiseName);
   NimBLEDevice::setMTU(247);
   ble_ota::security();
-  server = NimBLEDevice::createServer();  // re-advertises after disconnect by default
+  server = NimBLEDevice::createServer();
+  server->advertiseOnDisconnect(true);  // off by default in NimBLE 2.x: the board would vanish until reset
   NimBLEService* svc = server->createService(SERVICE_UUID);
   NimBLECharacteristic* info = svc->createCharacteristic(INFO_UUID, NIMBLE_PROPERTY::READ);
   info->setValue(infoJson);
