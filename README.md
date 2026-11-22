@@ -36,6 +36,12 @@ A global `pio` works the same way. Two identical boards are attached, so the
 upload port is deliberately not pinned in `platformio.ini`. `scripts/ports.sh`
 lists them; use the `/dev/serial/by-id/...` path.
 
+## Screen
+
+Every firmware environment shows the link state, RSSI/SNR (both directions), noise floor, counters and an RSSI chart
+on the board's OLED, on three pages that rotate every 5 s (PRG button: next page). See
+[`docs/oled-display.md`](docs/oled-display.md#what-the-link-firmware-shows).
+
 ## Phone web app (BLE)
 
 Flash the `lora_link_ble` env (`lora_link` plus a BLE feed; the board advertises as

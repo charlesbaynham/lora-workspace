@@ -5,8 +5,27 @@ Compiled 2026-11-21 from the schematics and datasheets in
 and the board variant header that PlatformIO already ships. Pin facts also
 appear in [`heltec-v4-hardware.md`](heltec-v4-hardware.md).
 
-**Status:** the example below compiles for `heltec_wifi_lora_32_V4`. It has
-**not been flashed**, so nothing here has been seen working on our boards yet.
+**Status:** the link firmware (`src/lora_link`, all environments) now drives the screen; see
+[What the link firmware shows](#what-the-link-firmware-shows). The panel code has **not been seen running on
+a board yet**: the layout was checked by rendering the three pages through U8g2 on a PC, and the build
+compiles, but nobody has looked at a real screen. The standalone example further down is older and also unflashed.
+
+## What the link firmware shows
+
+`src/common/oled_ui.h`, called from `src/lora_link/main.cpp`. It shows the numbers the phone app shows, on three
+pages that rotate every 5 s; the **PRG** button (GPIO0) steps to the next page. Every page has a title bar with
+the link state (*LINKED* / *ONE-WAY* / *LINK DOWN* / *NO PEER*, decided as in the app) and this board's id.
+
+| Page | Contents (app equivalent) |
+|---|---|
+| signal | peer id and time since its last beacon; RSSI and SNR heard here and heard at the peer (blank unless the link is up and the peer is hearing us); noise floor |
+| counts | beacons sent, received, CRC errors and bad %; lost beacons and lost %; frequency error; frequency, SF, bandwidth, power |
+| chart | RSSI of the last 104 received beacons, with the noise floor dashed; scale at least -120 to -20 dBm, as in the app |
+
+The screen redraws twice a second; a redraw sends 1 KB over I2C at 400 kHz (about 25 ms), which the radio does not
+mind because it holds a received packet until it is read. The rotation also keeps any one page from sitting on the
+OLED for days. To change a layout without a board, `draw()` only needs a `U8G2` object and a `Stats` struct, so it
+can be run on a PC against a stubbed I2C bus and the buffer dumped as an image.
 
 ## Short version
 

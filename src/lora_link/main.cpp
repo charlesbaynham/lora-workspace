@@ -12,6 +12,7 @@
 #include <esp_mac.h>
 
 #include "heltec_v4.h"
+#include "oled_ui.h"
 #ifdef LINK_BLE
 #include "ble_link.h"
 
@@ -34,6 +35,8 @@ static volatile bool rxFlag = false;
 static char myId[7];
 static uint32_t txCount = 0, rxCount = 0, rxBad = 0;
 static uint32_t nextTxMs = 0;
+static float noiseDbm = 0, lastFerr = 0;  // latest readings, for the screen
+static bool noiseValid = false, ferrValid = false;
 
 // ~3 missed beacons (they come every 5-7 s).
 static constexpr uint32_t LINK_TIMEOUT_MS = 20000;
@@ -180,6 +183,9 @@ static void handleRx() {
     buf[len] = 0;
     rxCount++;
     float rssi = radio.getRSSI(), snr = radio.getSNR(), ferr = radio.getFrequencyError();
+    lastFerr = ferr;
+    ferrValid = true;
+    oled_ui::addRssi(rssi);
     Serial.printf("RX  \"%s\"  RSSI %.1f dBm  SNR %.1f dB  freq err %.0f Hz  [ok %lu, bad %lu]\n",
                   (char*)buf, rssi, snr, ferr, (unsigned long)rxCount, (unsigned long)rxBad);
 #ifdef LINK_BLE
@@ -199,6 +205,34 @@ static void handleRx() {
   startRx();
 }
 
+// What the screen shows: the same numbers as the phone app (see oled_ui.h).
+static void fillScreen(oled_ui::Stats& s) {
+  s.id = myId;
+  s.tx = txCount;
+  s.ok = rxCount;
+  s.bad = rxBad;
+  s.peerSeen = peer.seen;
+  s.up = linkUp();
+  s.farValid = peer.farValid;
+  s.peerId = peer.id;
+  s.ageMs = millis() - peer.lastMs;
+  s.got = peer.got;
+  s.lost = peer.lost;
+  s.rssi = peer.rssi;
+  s.snr = peer.snr;
+  s.frssi = peer.farRssi;
+  s.fsnr = peer.farSnr;
+  s.noiseValid = noiseValid;
+  s.noise = noiseDbm;
+  s.ferrValid = ferrValid;
+  s.ferr = lastFerr;
+  s.freq = FREQ_MHZ;
+  s.bw = BW_KHZ;
+  s.sf = SF;
+  s.cr = CR;
+  s.pwr = TX_POWER_DBM;
+}
+
 void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   Serial.begin(115200);
@@ -215,6 +249,7 @@ void setup() {
   gnssQuiesce();
   Serial.println("GNSS held off/in reset");
 #endif
+  oled_ui::begin();
   femInit();
   SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_NSS);
 
@@ -274,9 +309,12 @@ void loop() {
   static uint32_t nextNoiseMs = 0;
   if ((int32_t)(millis() - nextNoiseMs) >= 0 && !rxFlag) {
     float nf = noiseFloorDbm();
+    noiseDbm = nf;
+    noiseValid = true;
     Serial.printf("noise floor %.1f dBm\n", nf);
     BLE_EVENT("{\"e\":\"noise\",\"dbm\":%.1f}", nf);
     nextNoiseMs = millis() + 5000;
   }
+  oled_ui::update(fillScreen);
   delay(1);
 }
