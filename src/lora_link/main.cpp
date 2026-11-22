@@ -36,6 +36,10 @@ static uint32_t nextTxMs = 0;
 static float noiseDbm = 0, lastFerr = 0;  // latest readings, for the screen
 static bool noiseValid = false, ferrValid = false;
 
+// The white LED (GPIO35) was too bright at full power, so it is driven with PWM at 10% duty (of 255).
+static constexpr uint8_t LED_DUTY = 26;
+static bool ledOn = false;
+
 // ~3 missed beacons (they come every 5-7 s).
 static constexpr uint32_t LINK_TIMEOUT_MS = 20000;
 
@@ -185,7 +189,8 @@ static void handleRx() {
     BLE_EVENT("{\"e\":\"rx\",\"m\":\"%s\",\"rssi\":%.1f,\"snr\":%.1f,\"ferr\":%.0f,\"ok\":%lu,\"bad\":%lu}",
               esc, rssi, snr, ferr, (unsigned long)rxCount, (unsigned long)rxBad);
     trackPeer((char*)buf, rssi, snr);
-    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
+    ledOn = !ledOn;  // flips on every good packet
+    analogWrite(LED_BUILTIN, ledOn ? LED_DUTY : 0);
   } else {
     rxBad++;
     Serial.printf("RX  error %d (CRC etc.)  [ok %lu, bad %lu]\n", rc, (unsigned long)rxCount,
