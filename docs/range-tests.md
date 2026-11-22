@@ -20,17 +20,26 @@ estimate, "ish"). Which board is in which room is not recorded; add it when know
 |---|---|---|---|---|---|---|
 | earlier | stock | 30 cm apart, same bench | -11 dBm | -12 dBm | -88 / -90 dBm | after reseating both antennas; from `lora-bringup.md`. Near-field, not comparable with the rows below |
 | 2026-11-22, before swap | stock | same two rooms as the row below (owner confirmed) | -73 to -74 dBm | not recorded | not recorded | read off FB's log ("peer hears us at") right after flashing it; one direction only, a handful of packets. Antennas were seated properly (the early mis-seated antenna was an earlier session) |
-| 2026-11-22, after swap | larger antennas (model not recorded) | same rooms, ~20 m, ~2.5 walls | -57 to -58 dBm | -58 dBm | -89 dBm | 60 s capture on FE, 10 of 10 packets received, none lost |
+| 2026-11-22, after swap | larger antennas (model not recorded) | same rooms, ~20 m, ~2.5 walls; **antennas also moved a little** | -57 to -58 dBm | -58 dBm | -89 dBm | 60 s capture on FE, 10 of 10 packets received, none lost |
 
 ## Reading it
 
-- With the boards in the same rooms, swapping to the larger antennas raised the received signal
-  by about **16 dB** (-73 to -74 dBm to -57 to -58 dBm), with the noise floor unchanged at about
-  -89 dBm. The link is now symmetric (-58 dBm both ways), so neither antenna looks badly seated.
-- Limits of that number: the "before" reading is one direction (FE hearing FB) from a handful
-  of packets, and indoor links fade by several dB with small movements or orientation. Treat 16 dB
-  as "about 10 to 20 dB better", not as a precise antenna gain. A measurement in both directions
-  with each antenna set, over a few minutes, would tighten it.
+- Between the "before" and "after" readings **two things changed**: the antennas (stock to
+  larger) and their position and orientation (the owner moved them a little while swapping). The
+  received signal went up by about **16 dB** (-73 to -74 dBm to -57 to -58 dBm), with the noise floor
+  unchanged at about -89 dBm, and the link is now symmetric (-58 dBm both ways), so neither antenna
+  looks badly seated. How much of the 16 dB is antenna gain and how much is better placement
+  is **not known**.
+- Indoor links at 868 MHz vary by several dB, and sometimes 10 dB or more, with a few centimetres
+  of movement or a change of antenna orientation (multipath, polarisation, a wall corner), so
+  moving the antennas alone could account for a good part of this. That would also explain why 16 dB
+  looks high for antenna gain alone (see the budget below).
+- Limits of the number: the "before" reading is one direction (FE hearing FB) from a handful
+  of packets. Treat 16 dB as "better, by somewhere from a few dB to about 16 dB due to the
+  antennas".
+- To separate the two: keep the antennas fixed in place and orientation, swap only the antenna
+  (or the reverse: same antennas, nudge them), and capture a few minutes in both directions each
+  time. Note the positions in this file.
 - The much earlier readings in `lora-bringup.md` (-74 vs -27 dBm, the 46 dB asymmetry) were
   taken while one antenna was not seated properly, and are not comparable with any of these.
 
@@ -53,10 +62,10 @@ for +10 dBm at the antenna port, so with antenna gains and wall losses added:
   about +14 dB of combined antenna gain (about +7 dBi each), which is high for ordinary whips
   (a few dBi). The two anchors do not reconcile cleanly: the 30 cm bench is near-field and a
   poor reference, and indoor fading adds several dB either way.
-- **Conclusion:** the swap clearly helped (same rooms, about 16 dB stronger and symmetric), but
-  16 dB is at the high end for antenna gain alone, so expect part of it to be fading or
-  orientation. The budget has two guessed numbers (wall loss, old antenna gain) and cannot
-  settle that; a both-directions, minutes-long comparison in the same positions can.
+- **Conclusion:** the setup works better now, but because the antennas were also moved, the
+  budget cannot say how much is the antennas. 16 dB is at the high end for antenna gain alone, so
+  a better position or orientation is a likely contributor. The budget has two guessed numbers
+  (wall loss, old antenna gain) and cannot settle it.
 
 The wall loss is a guess (a few dB per interior wall is typical; the old-antenna figure above implies
 more), not measured here.
