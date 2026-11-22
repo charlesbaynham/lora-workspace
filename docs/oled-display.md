@@ -13,7 +13,7 @@ compiles, but nobody has looked at a real screen. The standalone example further
 ## What the link firmware shows
 
 `src/common/oled_ui.h`, called from `src/lora_link/main.cpp`. It shows the numbers the phone app shows, on three
-pages that rotate every 5 s; the **PRG** button (GPIO0) steps to the next page. Every page has a title bar with
+pages (four in the `lora_link_ble` build) that rotate every 5 s; the **PRG** button (GPIO0) steps to the next page. Every page has a title bar with
 the link state (*LINKED* / *ONE-WAY* / *LINK DOWN* / *NO PEER*, decided as in the app) and this board's id.
 
 | Page | Contents (app equivalent) |
@@ -21,6 +21,12 @@ the link state (*LINKED* / *ONE-WAY* / *LINK DOWN* / *NO PEER*, decided as in th
 | signal | peer id and time since its last beacon; RSSI and SNR heard here and heard at the peer (blank unless the link is up and the peer is hearing us); noise floor |
 | counts | beacons sent, received, CRC errors and bad %; lost beacons and lost %; frequency error; frequency, SF, bandwidth, power |
 | chart | RSSI of the last 104 received beacons, with the noise floor dashed; scale at least -120 to -20 dBm, as in the app |
+| Wi-Fi | `lora_link_ble` only: what the Wi-Fi radio is doing (*off*, *scanning*, *joining*, *updating n %*), the saved network, and the last join (IP, signal, how long ago) or, if the last attempt failed, why |
+
+The Wi-Fi radio is off except while the phone has the board scan, join or update (docs/wifi-ota.md), so on this page
+*Wi-Fi: off* is the normal state. The IP and signal are from the last join since boot, not live. Those jobs block
+the main loop for seconds, so `ble_wifi.h` calls a hook (`ble_wifi::onChange`) as it goes and the screen jumps to
+this page and follows the progress; the normal rotation resumes afterwards.
 
 The screen redraws twice a second; a redraw sends 1 KB over I2C at 400 kHz (about 25 ms), which the radio does not
 mind because it holds a received packet until it is read. The rotation also keeps any one page from sitting on the

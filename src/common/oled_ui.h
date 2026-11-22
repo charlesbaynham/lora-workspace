@@ -1,8 +1,9 @@
 // Link status on the board's 128x64 OLED: the same numbers the phone web app (web/index.html) shows.
-// Three pages that rotate every PAGE_MS (the PRG button steps to the next one):
+// Pages that rotate every PAGE_MS (the PRG button steps to the next one):
 //   1. signal:  link state, peer, RSSI / SNR heard here and at the peer, noise floor
 //   2. counts:  sent / received / CRC errors / lost, frequency error, radio settings
 //   3. chart:   RSSI of the last received beacons, with the noise floor (dashed)
+//   4. Wi-Fi:   (LINK_BLE builds only) what the Wi-Fi radio is doing, saved network, last join
 // A bar across the top of every page says Linked / One-way / Link down, as the app's link card does.
 // Panel, pins and the Vext power switch: docs/oled-display.md.
 #pragma once
@@ -10,6 +11,19 @@
 #include <U8g2lib.h>
 
 namespace oled_ui {
+
+enum WifiState : uint8_t { WIFI_OFF, WIFI_SCANNING, WIFI_JOINING, WIFI_UPDATING };
+
+struct WifiStats {
+  uint8_t state;       // WifiState
+  int pct;             // WIFI_UPDATING: download progress
+  const char* ssid;    // saved network ("" if none)
+  const char* ip;      // from the last successful join (valid if joined)
+  int rssi;
+  bool joined;         // has joined a network since boot
+  uint32_t joinedAgoMs;
+  const char* err;     // why the last attempt failed ("" if it did not)
+};
 
 // Everything the pages show; the caller fills it in from its own counters.
 struct Stats {
@@ -27,10 +41,16 @@ struct Stats {
   float freq, bw;               // MHz, kHz
   uint8_t sf, cr;
   int pwr;                      // dBm
+  WifiStats wifi;
 };
 
 constexpr uint32_t PAGE_MS = 5000;
+#ifdef LINK_BLE
+constexpr int PAGES = 4;        // the Wi-Fi page exists only in builds that have Wi-Fi support
+#else
 constexpr int PAGES = 3;
+#endif
+constexpr int PAGE_WIFI = 3;
 constexpr int HIST = 104;       // chart width in pixels: one RSSI sample per pixel
 
 constexpr int BTN_PRG = 0;      // the USER (PRG) button, active low
@@ -118,7 +138,7 @@ inline void pageSignal(U8G2& u, const Stats& s) {
 }
 
 inline void pageCounts(U8G2& u, const Stats& s) {
-  char b[24];
+  char b[40];
   snprintf(b, sizeof b, "sent %lu", (unsigned long)s.tx);
   u.drawStr(0, 21, b);
   snprintf(b, sizeof b, "recv %lu", (unsigned long)s.ok);
@@ -184,6 +204,77 @@ inline void pageChart(U8G2& u, const Stats& s) {
   u.setFont(OLED_FONT_TEXT);
 }
 
+// text, broken at spaces into at most maxLines lines of `cols` characters; anything longer is cut off
+inline void wrapText(U8G2& u, int y, int maxLines, const char* text, int cols) {
+  char line[32];
+  const char* p = text;
+  for (int i = 0; i < maxLines && *p; i++) {
+    int n = strlen(p);
+    if (n > cols) {
+      n = cols;
+      for (int sp = cols; sp > 0; sp--)
+        if (p[sp] == ' ') {
+          n = sp;
+          break;
+        }
+    }
+    memcpy(line, p, n);
+    line[n] = 0;
+    u.drawStr(0, y + 10 * i, line);
+    p += n;
+    while (*p == ' ') p++;
+  }
+}
+
+// "3s", "12m", "5h"
+inline void ageText(char* b, size_t n, uint32_t ms) {
+  uint32_t s = ms / 1000;
+  if (s < 60) snprintf(b, n, "%lus", (unsigned long)s);
+  else if (s < 3600) snprintf(b, n, "%lum", (unsigned long)(s / 60));
+  else snprintf(b, n, "%luh", (unsigned long)(s / 3600));
+}
+
+// The Wi-Fi radio is off except while the phone has the board scan, join or update (to keep the 868 MHz
+// receiver quiet), so this page says what it is doing now, which network is saved, and how the last try went.
+inline void pageWifi(U8G2& u, const Stats& s) {
+  const WifiStats& w = s.wifi;
+  char b[40];
+  switch (w.state) {
+    case WIFI_SCANNING: snprintf(b, sizeof b, "Wi-Fi: scanning..."); break;
+    case WIFI_JOINING: snprintf(b, sizeof b, "Wi-Fi: joining..."); break;
+    case WIFI_UPDATING: snprintf(b, sizeof b, "Wi-Fi: updating %d%%", w.pct); break;
+    default: snprintf(b, sizeof b, "Wi-Fi: off"); break;
+  }
+  u.drawStr(0, 21, b);
+
+  if (w.ssid[0]) {  // network names are untrusted and may be UTF-8: show printable ASCII only
+    char name[17];
+    size_t i = 0;
+    for (; i < sizeof name - 1 && w.ssid[i]; i++) name[i] = (w.ssid[i] >= 32 && w.ssid[i] < 127) ? w.ssid[i] : '?';
+    name[i] = 0;
+    snprintf(b, sizeof b, "net: %s", name);
+  } else {
+    snprintf(b, sizeof b, "net: none saved");
+  }
+  u.drawStr(0, 31, b);
+
+  if (w.err[0] && w.state == WIFI_OFF) {
+    u.drawStr(0, 41, "last attempt failed:");
+    wrapText(u, 51, 2, w.err, 21);
+  } else if (w.joined) {
+    snprintf(b, sizeof b, "IP %s", w.ip);
+    u.drawStr(0, 41, b);
+    char age[8];
+    ageText(age, sizeof age, w.joinedAgoMs);
+    snprintf(b, sizeof b, "joined %s ago", age);
+    u.drawStr(0, 51, b);
+    snprintf(b, sizeof b, "signal %d dBm", w.rssi);
+    u.drawStr(0, 61, b);
+  } else {
+    u.drawStr(0, 41, w.ssid[0] ? "not joined since boot" : "set up in the app");
+  }
+}
+
 // Draw one page into the display's buffer (does not send it).
 inline void draw(U8G2& u, const Stats& s, int page) {
   u.clearBuffer();
@@ -192,6 +283,7 @@ inline void draw(U8G2& u, const Stats& s, int page) {
   switch (page) {
     case 0: pageSignal(u, s); break;
     case 1: pageCounts(u, s); break;
+    case PAGE_WIFI: pageWifi(u, s); break;
     default: pageChart(u, s); break;
   }
 }
@@ -210,33 +302,48 @@ inline void begin() {
   pinMode(BTN_PRG, INPUT_PULLUP);
 }
 
+static int curPage = 0;
+static uint32_t pageSince = 0, lastDraw = 0;
+
+template <typename Fill>
+inline void drawNow(Fill fill) {
+  Stats s = {};
+  fill(s);
+  draw(display, s, curPage);
+  display.sendBuffer();
+  lastDraw = millis();
+}
+
+// Switch to `page` and draw it at once. For code that blocks loop() for a while (the Wi-Fi jobs) and wants
+// the screen to follow along; the rotation carries on PAGE_MS after the last call.
+template <typename Fill>
+inline void show(Fill fill, int page) {
+  curPage = page;
+  pageSince = millis();
+  drawNow(fill);
+}
+
 // Call from loop(); redraws twice a second, and at once after a button press. `fill` is only called when
 // a redraw is due, so building the Stats costs nothing otherwise.
 template <typename Fill>
 inline void update(Fill fill) {
-  static uint32_t pageSince = 0, lastDraw = 0;
-  static int page = 0;
   static bool btnWas = false, first = true;
   uint32_t now = millis();
   bool btn = digitalRead(BTN_PRG) == LOW, redraw = first;
   if (btn && !btnWas) {
-    page = (page + 1) % PAGES;
+    curPage = (curPage + 1) % PAGES;
     pageSince = now;
     redraw = true;
   }
   btnWas = btn;
   if (now - pageSince >= PAGE_MS) {
-    page = (page + 1) % PAGES;
+    curPage = (curPage + 1) % PAGES;
     pageSince = now;
     redraw = true;
   }
   if (!redraw && now - lastDraw < 500) return;
   first = false;
-  lastDraw = now;
-  Stats s = {};
-  fill(s);
-  draw(display, s, page);
-  display.sendBuffer();
+  drawNow(fill);
 }
 
 }  // namespace oled_ui

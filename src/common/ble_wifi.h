@@ -42,6 +42,26 @@ constexpr uint8_t CMD_SCAN = 0x10, CMD_CONNECT = 0x11, CMD_FORGET = 0x12, CMD_UP
 constexpr uint32_t JOIN_TIMEOUT_MS = 15000;
 constexpr uint8_t MAX_APS = 16;
 
+// What the board's screen shows (oled_ui.h). Written only by loop()'s jobs, read by the main loop.
+enum class State : uint8_t { OFF, SCANNING, JOINING, UPDATING };  // same order as oled_ui::WifiState
+static struct {
+  State state = State::OFF;
+  int pct = 0;           // UPDATING: download progress
+  char ssid[33] = "";    // the saved network, empty if none
+  char ip[16] = "";      // from the last successful join (valid if joinedMs)
+  int rssi = 0;
+  uint32_t joinedMs = 0; // millis() of that join; 0 = none since boot
+  char err[48] = "";     // why the last job failed; cleared by the next successful join
+} status;
+// Called (from loop(), never from a BLE callback) whenever `status` changes, so the screen can follow a job
+// that blocks loop() for seconds.
+static void (*onChange)() = nullptr;
+static void setState(State s, int pct = 0) {
+  status.state = s;
+  status.pct = pct;
+  if (onChange) onChange();
+}
+
 static NimBLECharacteristic* ch = nullptr;
 static Preferences prefs;
 static struct {
@@ -61,8 +81,11 @@ static void say(const char* fmt, ...) {
   ch->notify();
 }
 
-static void err(const char* m) {
+// job: a failure of a job run by loop(), which the screen reports; false for a command refused in the BLE
+// callback (another task, and it says nothing about the last job).
+static void err(const char* m, bool job = true) {
   Serial.printf("Wi-Fi: %s\n", m);
+  if (job) snprintf(status.err, sizeof status.err, "%s", m);
   say("{\"wifi\":\"err\",\"m\":\"%s\"}", m);
 }
 
@@ -71,6 +94,7 @@ static void publishSaved() {
   prefs.begin("wifi", true);
   prefs.getString("ssid", ssid, sizeof ssid);
   prefs.end();
+  snprintf(status.ssid, sizeof status.ssid, "%s", ssid);
   jsonEscape(esc, sizeof esc, ssid, true);
   char j[120];
   snprintf(j, sizeof j, "{\"ssid\":\"%s\"}", esc);
@@ -84,6 +108,7 @@ static void radioOff() {
 
 // Join ssid; on failure says why. Leaves Wi-Fi on only if it joined.
 static bool join(const char* ssid, const char* pass) {
+  setState(State::JOINING);
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, pass[0] ? pass : nullptr);
   uint32_t t0 = millis();
@@ -94,7 +119,13 @@ static bool join(const char* ssid, const char* pass) {
     }
     delay(100);
   }
-  if (s == WL_CONNECTED) return true;
+  if (s == WL_CONNECTED) {
+    snprintf(status.ip, sizeof status.ip, "%s", WiFi.localIP().toString().c_str());
+    status.rssi = WiFi.RSSI();
+    status.joinedMs = millis() ? millis() : 1;
+    status.err[0] = 0;
+    return true;
+  }
   radioOff();
   err(s == WL_NO_SSID_AVAIL ? "network not found"
       : s == WL_CONNECT_FAILED ? "could not join (wrong password?)"
@@ -103,6 +134,7 @@ static bool join(const char* ssid, const char* pass) {
 }
 
 static void doScan() {
+  setState(State::SCANNING);
   WiFi.mode(WIFI_STA);
   int n = WiFi.scanNetworks();
   if (n < 0) {
@@ -180,6 +212,7 @@ static void doUpdate(const uint8_t* d, size_t n) {
   if (!ssid[0]) return err("no Wi-Fi network saved");
   say("{\"wifi\":\"upd\",\"p\":0}");
   if (!join(ssid, pass)) return;
+  setState(State::UPDATING, 0);
 
   NetworkClientSecure tls;
   tls.setInsecure();  // authenticity comes from the SHA-256 checked below, not from the certificate
@@ -237,6 +270,7 @@ static void doUpdate(const uint8_t* d, size_t n) {
     if (pct >= lastPct + 5) {
       lastPct = pct;
       say("{\"wifi\":\"upd\",\"p\":%d}", pct);
+      setState(State::UPDATING, pct);
     }
   }
   http.end();
@@ -260,8 +294,8 @@ class WifiCallbacks : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic* c, NimBLEConnInfo&) override {
     NimBLEAttValue v = c->getValue();
     if (v.size() < 1) return;
-    if (job.cmd) return err("busy");
-    if (v.size() - 1 > sizeof job.data) return err("command too long");
+    if (job.cmd) return err("busy", false);
+    if (v.size() - 1 > sizeof job.data) return err("command too long", false);
     uint8_t cmd = v.data()[0];
     if (cmd != CMD_SCAN && cmd != CMD_CONNECT && cmd != CMD_FORGET && cmd != CMD_UPDATE) return;
     job.len = v.size() - 1;
@@ -296,6 +330,7 @@ inline void loop() {
     case CMD_UPDATE: doUpdate(data, n); break;
   }
   job.cmd = 0;
+  setState(State::OFF);  // every job ends with the radio off
 }
 
 }  // namespace ble_wifi

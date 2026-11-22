@@ -39,7 +39,8 @@ lists them; use the `/dev/serial/by-id/...` path.
 ## Screen
 
 Every firmware environment shows the link state, RSSI/SNR (both directions), noise floor, counters and an RSSI chart
-on the board's OLED, on three pages that rotate every 5 s (PRG button: next page). See
+on the board's OLED, on three pages that rotate every 5 s (PRG button: next page); `lora_link_ble` adds a
+fourth with the Wi-Fi state (saved network, last join, update progress). See
 [`docs/oled-display.md`](docs/oled-display.md#what-the-link-firmware-shows).
 
 ## Phone web app (BLE)

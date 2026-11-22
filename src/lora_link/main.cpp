@@ -231,6 +231,12 @@ static void fillScreen(oled_ui::Stats& s) {
   s.sf = SF;
   s.cr = CR;
   s.pwr = TX_POWER_DBM;
+#ifdef LINK_BLE
+  const auto& w = ble_wifi::status;
+  s.wifi = {(uint8_t)w.state, w.pct, w.ssid, w.ip, w.rssi, w.joinedMs != 0, millis() - w.joinedMs, w.err};
+#else
+  s.wifi = {oled_ui::WIFI_OFF, 0, "", "", 0, false, 0, ""};
+#endif
 }
 
 void setup() {
@@ -250,6 +256,10 @@ void setup() {
   Serial.println("GNSS held off/in reset");
 #endif
   oled_ui::begin();
+#ifdef LINK_BLE
+  // The Wi-Fi jobs block loop() for seconds: let them put their progress on the screen.
+  ble_wifi::onChange = [] { oled_ui::show(fillScreen, oled_ui::PAGE_WIFI); };
+#endif
   femInit();
   SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_NSS);
 
