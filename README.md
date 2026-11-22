@@ -23,8 +23,7 @@ Both are V4.3 (KCT8103L PA). The link between them works symmetrically
 ## Build / flash / monitor
 
 There is one firmware, `lora_link`, and both boards run it. It includes the LoRa link, the OLED, Bluetooth for the
-phone app, and updates over Bluetooth and Wi-Fi. `platformio.ini` also has two bring-up diagnostics, `smoke` and
-`fem_sweep`, which replace the firmware until it is flashed again; see `docs/lora-bringup.md`.
+phone app, and updates over Bluetooth and Wi-Fi.
 
 ```fish
 set -x PLATFORMIO_CORE_DIR $PWD/.platformio       # keep toolchains inside the repo
@@ -99,5 +98,4 @@ sudo udevadm control --reload; and sudo udevadm trigger
 - `src/common/ble_wifi.h`: Wi-Fi network setup and firmware update over Wi-Fi ([`docs/wifi-ota.md`](docs/wifi-ota.md))
 - `web/firmware/`: the published firmware image the web app installs (`scripts/publish_firmware.sh`)
 - `web/`: phone web app (Web Bluetooth) and its systemd unit, see below
-- `src/smoke/`, `src/fem_sweep/`: bring-up diagnostics
 - `docs/`: hardware and radio reference, Heltec's datasheets and schematics

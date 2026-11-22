@@ -53,7 +53,6 @@ CTRL commands: `01 <u32 LE size> <32-byte SHA-256>` begin, `02` end, `03` abort.
 
 ## Limits
 
-- Installing a diagnostic image (`smoke`, `fem_sweep`) removes OTA from the board; recover over USB.
 - **The partition table is only written by a USB upload, never over the air.** A board flashed
   before the switch to `default_16MB.csv` still has the old 4 MB table with 1.25 MB slots, whatever
   image it is updated with; give it one USB upload (`pio run -t upload`) to switch.

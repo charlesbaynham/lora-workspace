@@ -21,16 +21,11 @@ uv run --with pyserial python -I scripts/serial_capture.py /dev/serial/by-id/usb
 Each board beacons `V4 <id> #<n>` every 4-6 s and otherwise listens, printing
 RSSI, SNR, frequency error and an idle noise-floor reading.
 
-| Env | For | Difference |
-|---|---|---|
-| `lora_link` | V4.3 boards (KCT8103L PA), **the firmware, on both** | default |
-| `fem_sweep` | diagnostic | RX only: steps GPIO7/2/5 through all 8 states and reports noise floor and RSSI (needs another board running `lora_link`) |
-| `smoke` | either | identity, SX1262 check, GNSS detection |
+Both boards are V4.3 (KCT8103L PA, confirmed from the silkscreen), so both run `lora_link`, the only firmware.
 
-Both boards are V4.3 (confirmed from the silkscreen), so both run `lora_link`.
-
-The build variants named in the measurements below (`lora_link_lna`, `lora_link_nognss[_lna]`, `lora_link_v42`) were
-removed when the project moved to a single firmware. They are in git history before that change. The firmware has
+The other builds named in the measurements below (`lora_link_lna`, `lora_link_nognss[_lna]`, `lora_link_v42`,
+`fem_sweep`) were removed when the project moved to a single firmware, along with the `smoke` test. They are in git
+history before that change. The firmware has
 the receive LNA off, does not touch the GNSS module, and supports V4.3 boards only.
 
 ## What the radio needs
