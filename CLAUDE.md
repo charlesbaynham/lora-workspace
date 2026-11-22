@@ -2,6 +2,12 @@
 
 PlatformIO firmware for two Heltec WiFi LoRa 32 V4 boards. See `README.md` and `docs/`.
 
+## Firmware: only one to flash
+
+Keep exactly one firmware available to flash, `lora_link`, unless Charles explicitly says
+otherwise. Do not add PlatformIO environments, build variants or feature flags that produce
+another flashable image. Put new features in `lora_link`.
+
 ## Git: commit regularly, only your own changes
 
 - **Commit regularly**, and always at the end of every turn that changed files.
