@@ -35,8 +35,8 @@ Characteristics on the existing service (UUIDs in both `ble_ota.h` and `index.ht
 CTRL commands: `01 <u32 LE size> <32-byte SHA-256>` begin, `02` end, `03` abort. Status:
 `{"ota":"ready"}`, `{"ota":"done"}`, `{"ota":"err","m":"..."}`.
 
-- The image is written to the *other* OTA slot (`app0`/`app1`, 1.25 MB each in PlatformIO's
-  default 4 MB table, which these 16 MB boards currently use). The running firmware is
+- The image is written to the *other* OTA slot (`app0`/`app1`, 6.25 MB each in the 16 MB table
+  `default_16MB.csv`, set in `platformio.ini`). The running firmware is
   untouched until `end` has checked the size, the SHA-256 and the ESP image header, so an
   interrupted or corrupt transfer just leaves the old firmware running.
 - Writes use write-with-response. Write-without-response is faster but can be dropped while the
@@ -55,7 +55,10 @@ CTRL commands: `01 <u32 LE size> <32-byte SHA-256>` begin, `02` end, `03` abort.
 
 - Updating with an image built without `LINK_BLE` (e.g. `lora_link`, `smoke`) works but removes
   OTA from the board; recover over USB.
-- If firmware.bin outgrows the 1.25 MB slot, set `board_build.partitions = default_16MB.csv`
-  (two 6.25 MB slots) and flash once over USB; the partition table is not updated over the air.
+- **The partition table is only written by a USB upload, never over the air.** A board flashed
+  before the switch to `default_16MB.csv` still has the old 4 MB table with 1.25 MB slots, whatever
+  image it is updated with; give it one USB upload (`pio run -e lora_link_ble -t upload`) to switch.
+  The new table keeps NVS at the same address, so saved settings (the Wi-Fi network) survive.
+  An image larger than the board's slot is refused by the update ("Update.begin" fails).
 - Each published image adds ~600 KB to the git history.
 - Speed: the phone, not the board, picks the connection interval; the board asks for 15-30 ms.

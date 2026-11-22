@@ -59,9 +59,10 @@ scan or download takes seconds and must not stall the BLE host task.
 - 2.4 GHz networks only. Open and WPA/WPA2/WPA3 personal work; networks that need a login page
   (captive portals) or enterprise (802.1X) logins do not.
 - Network names are handled as UTF-8; one with invalid UTF-8 bytes cannot be selected from the list.
-- The image is now 1,246,464 bytes against the 1,310,720-byte (1.25 MiB) OTA slot of PlatformIO's
-  default 4 MB partition table: about 5 % spare. If it outgrows the slot, switch to `default_16MB.csv` (see
-  [`ble-ota.md`](ble-ota.md#limits)), which needs one USB flash.
+- The image is 1,246,464 bytes. The old 4 MB partition table's 1.25 MiB slots would have left 5 % spare,
+  so the project now uses `default_16MB.csv` (6.25 MB slots). **Each board needs one USB upload to get
+  the new table**; it cannot be changed over BLE or Wi-Fi (see [`ble-ota.md`](ble-ota.md#limits)).
+  Until then an updated board still works, but is limited to 1.25 MiB images.
 - Each published image is now about 1.2 MB in git history.
 - Untested on hardware at the time of writing: the page logic was run against a mock board only.
   Wi-Fi scanning and BLE share the 2.4 GHz radio, so a BLE disconnect during a scan or update is
