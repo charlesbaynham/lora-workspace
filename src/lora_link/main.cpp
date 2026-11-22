@@ -14,6 +14,10 @@
 #include "heltec_v4.h"
 #ifdef LINK_BLE
 #include "ble_link.h"
+
+// Overrides the Arduino core's weak hook: after an OTA update the new image stays "pending" until
+// ble_ota::confirmBootWhenHealthy() runs in loop(), so a crash on boot rolls back to the old image.
+extern "C" bool verifyRollbackLater() { return true; }
 #endif
 
 using namespace heltec_v4;
@@ -221,11 +225,12 @@ void setup() {
   if ((rc = radio.setCRC(2)) != RADIOLIB_ERR_NONE) fail("setCRC", rc);
 
 #ifdef LINK_BLE
-  char name[16], info[160];
+  char name[16], info[200];
   snprintf(name, sizeof name, "LoRa-%s", myId);
   snprintf(info, sizeof info,
-           "{\"id\":\"%s\",\"freq\":%.1f,\"bw\":%.0f,\"sf\":%u,\"cr\":%u,\"pwr\":%d}", myId,
-           FREQ_MHZ, BW_KHZ, SF, CR, TX_POWER_DBM);
+           "{\"id\":\"%s\",\"freq\":%.1f,\"bw\":%.0f,\"sf\":%u,\"cr\":%u,\"pwr\":%d,\"ota\":1,"
+           "\"fw\":\"" __DATE__ " " __TIME__ "\"}",
+           myId, FREQ_MHZ, BW_KHZ, SF, CR, TX_POWER_DBM);
   ble_link::begin(name, info);
   Serial.printf("BLE advertising as %s\n", name);
 #endif
@@ -235,6 +240,9 @@ void setup() {
 }
 
 void loop() {
+#ifdef LINK_BLE
+  ble_ota::confirmBootWhenHealthy();
+#endif
   if (rxFlag) {
     rxFlag = false;
     handleRx();

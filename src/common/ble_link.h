@@ -1,12 +1,15 @@
 // BLE status feed for the web app in web/. One GATT service, two characteristics:
 //   INFO  (read)   JSON: board id and radio settings, read once on connect.
 //   EVENT (notify) JSON: one object per radio event (tx / rx / bad / noise).
+// plus the firmware-update characteristics from ble_ota.h.
 // Keep the UUIDs in sync with web/index.html. Payloads must stay under the
 // negotiated ATT MTU minus 3 (Chrome on Android negotiates a large one; we ask
 // for 247), otherwise the stack truncates the notification.
 #pragma once
 #include <Arduino.h>
 #include <NimBLEDevice.h>
+
+#include "ble_ota.h"
 
 namespace ble_link {
 
@@ -33,11 +36,13 @@ inline void jsonEscape(char* dst, size_t dstSize, const char* src) {
 inline void begin(const char* advertiseName, const char* infoJson) {
   NimBLEDevice::init(advertiseName);
   NimBLEDevice::setMTU(247);
+  ble_ota::security();
   server = NimBLEDevice::createServer();  // re-advertises after disconnect by default
   NimBLEService* svc = server->createService(SERVICE_UUID);
   NimBLECharacteristic* info = svc->createCharacteristic(INFO_UUID, NIMBLE_PROPERTY::READ);
   info->setValue(infoJson);
   eventChar = svc->createCharacteristic(EVENT_UUID, NIMBLE_PROPERTY::NOTIFY);
+  ble_ota::attach(server, svc);
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
   adv->addServiceUUID(SERVICE_UUID);
   adv->setName(advertiseName);

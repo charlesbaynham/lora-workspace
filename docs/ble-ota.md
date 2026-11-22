@@ -1,0 +1,55 @@
+# Firmware updates over BLE
+
+The `lora_link_ble` firmware can be updated from the phone web app (`web/index.html`),
+with no USB cable. Code: `src/common/ble_ota.h` (board) and the "Firmware update" card in
+`web/index.html` (phone).
+
+## Using it
+
+1. Build: `pio run -e lora_link_ble`. The image is `.pio/build/lora_link_ble/firmware.bin`
+   (not `bootloader.bin` or `partitions.bin`). Get it onto the phone (Nextcloud, `adb push`, ...).
+2. Open the web app, connect to a board. The "Firmware update" card appears if that board's
+   firmware supports it.
+3. Choose the `.bin`, tap *Update firmware*. The first time, Android asks to pair: enter the
+   passkey (123456 unless you set `-DOTA_PASSKEY=<n>` in `build_flags`; do change it).
+4. It takes about 3 minutes for 600 KB (about 4 KB/s, one acknowledged write per connection
+   interval). Keep the screen on. The board restarts and the app reconnects and reports the new
+   build time (`__DATE__ __TIME__` of `main.cpp`'s last compile).
+
+Update each board separately. The very first OTA-capable build has to go over USB.
+
+## How it works
+
+Characteristics on the existing service (UUIDs in both `ble_ota.h` and `index.html`):
+
+| UUID suffix | Name | Properties | Use |
+|---|---|---|---|
+| `6e4c0004-…` | CTRL | write (authenticated), notify | commands in, JSON status out |
+| `6e4c0005-…` | DATA | write (authenticated) | raw image bytes, 240 per write, with response |
+
+CTRL commands: `01 <u32 LE size> <32-byte SHA-256>` begin, `02` end, `03` abort. Status:
+`{"ota":"ready"}`, `{"ota":"done"}`, `{"ota":"err","m":"..."}`.
+
+- The image is written to the *other* OTA slot (`app0`/`app1`, 1.25 MB each in PlatformIO's
+  default 4 MB table, which these 16 MB boards currently use). The running firmware is
+  untouched until `end` has checked the size, the SHA-256 and the ESP image header, so an
+  interrupted or corrupt transfer just leaves the old firmware running.
+- Writes use write-with-response. Write-without-response is faster but can be dropped while the
+  BLE host task is blocked on flash.
+- **Security:** CTRL and DATA need an authenticated pairing (passkey), so a stranger's phone
+  cannot flash the board. The passkey is fixed in firmware (the boards have no input); anyone who
+  knows it and is in range can update. The status feed itself stays open.
+- **Rollback:** the bootloader has app rollback enabled. `lora_link` overrides
+  `verifyRollbackLater()` so a freshly updated image is only kept once it has run 15 s
+  (`ble_ota::confirmBootWhenHealthy()`); if it resets before that, the bootloader boots the
+  previous image. The web app tells you if the build did not change after an update.
+- A USB upload (`pio run -t upload`) rewrites `otadata`, so it always boots the freshly
+  uploaded image, whichever slot was active.
+
+## Limits
+
+- Updating with an image built without `LINK_BLE` (e.g. `lora_link`, `smoke`) works but removes
+  OTA from the board; recover over USB.
+- If firmware.bin outgrows the 1.25 MB slot, set `board_build.partitions = default_16MB.csv`
+  (two 6.25 MB slots) and flash once over USB; the partition table is not updated over the air.
+- Speed: the phone, not the board, picks the connection interval; the board asks for 15-30 ms.
