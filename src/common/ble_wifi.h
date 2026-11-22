@@ -196,6 +196,74 @@ static void doForget() {
   say("{\"wifi\":\"forgotten\"}");
 }
 
+// Downloads url into the other OTA slot, checks size and SHA-256, and makes it the boot image. Returns nullptr
+// on success, else why not (nothing was changed). The HTTP and TLS objects live in here on purpose: their
+// destructors close the sockets, which has to happen while Wi-Fi is still on. Closing them after
+// WiFi.mode(WIFI_OFF) crashes (null function pointer in lwip_close), so the caller turns the radio off only
+// after this returns.
+static const char* download(const String& url, const uint8_t* want) {
+  static char msg[40];
+  NetworkClientSecure tls;
+  tls.setInsecure();  // authenticity comes from the SHA-256 checked below, not from the certificate
+  WiFiClient plain;
+  HTTPClient http;
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  http.setTimeout(10000);
+  http.useHTTP10(true);                          // a proxy may not answer HTTP/1.0 with chunked encoding
+  http.addHeader("Accept-Encoding", "identity");  // nor compress: the bytes must be the published ones
+  if (!(url.startsWith("https://") ? http.begin(tls, url) : http.begin(plain, url))) return "bad url";
+  int code = http.GET();
+  if (code != 200) {
+    snprintf(msg, sizeof msg, code > 0 ? "server answered HTTP %d" : "could not reach the server (%d)", code);
+    return msg;
+  }
+  int len = http.getSize();  // -1: the server did not say; then the body ends when it closes the connection
+  if (len >= 0 && len < (int)ble_ota::MIN_IMAGE) return "file too small";
+  if (!Update.begin(len < 0 ? UPDATE_SIZE_UNKNOWN : len, U_FLASH)) return Update.errorString();
+  mbedtls_sha256_context sha;
+  mbedtls_sha256_init(&sha);
+  mbedtls_sha256_starts(&sha, 0);
+  Serial.printf("Wi-Fi update: downloading %d bytes\n", len);
+
+  static uint8_t buf[1460];
+  NetworkClient* stream = http.getStreamPtr();
+  int got = 0, lastPct = 0;
+  uint32_t lastData = millis();
+  const char* fail = nullptr;
+  while (!fail && (len < 0 || got < len)) {
+    size_t avail = stream->available();
+    if (!avail) {
+      if (!stream->connected()) {
+        if (len < 0) break;  // end of an unsized body
+        fail = "download ended early";
+      } else if (millis() - lastData > 15000) fail = "download stalled";
+      else delay(5);
+      continue;
+    }
+    size_t take = min(avail, sizeof buf);
+    if (len >= 0) take = min(take, (size_t)(len - got));
+    take = stream->readBytes(buf, take);
+    if (Update.write(buf, take) != take) fail = Update.errorString();
+    mbedtls_sha256_update(&sha, buf, take);
+    got += take;
+    lastData = millis();
+    int pct = len > 0 ? 100 * (int64_t)got / len : 0;
+    if (pct >= lastPct + 5) {
+      lastPct = pct;
+      say("{\"wifi\":\"upd\",\"p\":%d}", pct);
+      setState(State::UPDATING, pct);
+    }
+  }
+  uint8_t h[32];
+  mbedtls_sha256_finish(&sha, h);
+  mbedtls_sha256_free(&sha);
+  if (!fail && got < (int)ble_ota::MIN_IMAGE) fail = "file too small";
+  if (!fail && memcmp(h, want, 32) != 0) fail = "sha256 mismatch: not the published image";
+  if (!fail && !Update.end(true)) fail = Update.errorString();  // also validates the image header
+  if (fail) Update.abort();
+  return fail;
+}
+
 static void doUpdate(const uint8_t* d, size_t n) {
   if (n < 32 + 8) return err("bad update command");
   if (ble_ota::busy()) return err("a BLE update is running");
@@ -214,76 +282,9 @@ static void doUpdate(const uint8_t* d, size_t n) {
   if (!join(ssid, pass)) return;
   setState(State::UPDATING, 0);
 
-  NetworkClientSecure tls;
-  tls.setInsecure();  // authenticity comes from the SHA-256 checked below, not from the certificate
-  WiFiClient plain;
-  HTTPClient http;
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.setTimeout(10000);
-  bool began = url.startsWith("https://") ? http.begin(tls, url) : http.begin(plain, url);
-  if (!began) {
-    radioOff();
-    return err("bad url");
-  }
-  int code = http.GET();
-  if (code != 200) {
-    char m[40];
-    snprintf(m, sizeof m, code > 0 ? "server answered HTTP %d" : "could not reach the server (%d)", code);
-    http.end();
-    radioOff();
-    return err(m);
-  }
-  int len = http.getSize();
-  bool ok = len >= (int)ble_ota::MIN_IMAGE && Update.begin(len, U_FLASH);
-  if (!ok) {
-    const char* m = len < 0 ? "server gave no file size" : len < (int)ble_ota::MIN_IMAGE ? "file too small"
-                                                                                       : Update.errorString();
-    http.end();
-    radioOff();
-    return err(m);
-  }
-  mbedtls_sha256_context sha;
-  mbedtls_sha256_init(&sha);
-  mbedtls_sha256_starts(&sha, 0);
-  Serial.printf("Wi-Fi update: downloading %d bytes\n", len);
-
-  static uint8_t buf[1460];
-  NetworkClient* stream = http.getStreamPtr();
-  int got = 0, lastPct = 0;
-  uint32_t lastData = millis();
-  const char* fail = nullptr;
-  while (got < len && !fail) {
-    size_t avail = stream->available();
-    if (!avail) {
-      if (!stream->connected()) fail = "download ended early";
-      else if (millis() - lastData > 15000) fail = "download stalled";
-      else delay(5);
-      continue;
-    }
-    size_t take = min(min(avail, sizeof buf), (size_t)(len - got));
-    take = stream->readBytes(buf, take);
-    if (Update.write(buf, take) != take) fail = Update.errorString();
-    mbedtls_sha256_update(&sha, buf, take);
-    got += take;
-    lastData = millis();
-    int pct = 100 * (int64_t)got / len;
-    if (pct >= lastPct + 5) {
-      lastPct = pct;
-      say("{\"wifi\":\"upd\",\"p\":%d}", pct);
-      setState(State::UPDATING, pct);
-    }
-  }
-  http.end();
-  uint8_t h[32];
-  mbedtls_sha256_finish(&sha, h);
-  mbedtls_sha256_free(&sha);
-  if (!fail && memcmp(h, want, 32) != 0) fail = "sha256 mismatch: not the published image";
-  if (!fail && !Update.end(true)) fail = Update.errorString();  // also validates the image header
-  if (fail) {
-    Update.abort();
-    radioOff();
-    return err(fail);
-  }
+  const char* fail = download(url, want);
+  radioOff();
+  if (fail) return err(fail);
   Serial.println("Wi-Fi update done, rebooting");
   say("{\"wifi\":\"updated\"}");
   delay(500);  // let the notification out
